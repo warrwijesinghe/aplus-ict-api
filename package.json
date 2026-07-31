@@ -1,0 +1,43 @@
+{
+  "name": "aplus-ict-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "lint": "eslint .",
+    "db:migrate": "sequelize-cli db:migrate --config config/database.cjs --migrations-path migrations",
+    "db:seed": "sequelize-cli db:seed:all --config config/database.cjs --seeders-path seeders",
+    "db:validate": "sequelize-cli db:migrate:status --config config/database.cjs --migrations-path migrations"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "compression": "^1.8.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.6.0",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mariadb": "^3.4.5",
+    "multer": "^2.0.2",
+    "sequelize": "^6.37.7",
+    "sharp": "^0.35.3",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "globals": "^15.14.0",
+    "jest": "^30.0.5",
+    "nodemon": "^3.1.10",
+    "sequelize-cli": "^6.6.2",
+    "supertest": "^7.1.1"
+  }
+}
