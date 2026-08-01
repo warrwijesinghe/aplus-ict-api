@@ -18,6 +18,33 @@ const mediums = [
   ["english", "English Medium", "ඉංග්‍රීසි මාධ්‍ය", "en-LK", 2],
 ];
 
+const catalogue = {
+  GRADE_6: {
+    english: ["Importance of Computers", "Use the Computer Laboratory Safely", "Operating System and File Management", "Using Mouse and Keyboard to Use Application Software", "Algorithms and Flowcharts", "Using the Internet for Collecting Information and Communication"],
+    sinhala: ["පරිගණකයේ වැදගත්කම", "පරිගණක විද්‍යාගාරය ආරක්ෂිතව භාවිතය", "මෙහෙයුම් පද්ධතිය හා ගොනු හැසිරවීම", "යෙදුම් මෘදුකාංග භාවිතය සඳහා මූසිකය හා යතුරුපුවරුව යොදා ගැනීම", "ඇල්ගොරිතම සහ ගැලීම් සටහන්", "තොරතුරු රැස්කිරීම හා සන්නිවේදනය සඳහා අන්තර්ජාලය භාවිතය"],
+  },
+  GRADE_7: {
+    english: ["Central Processing Unit", "Operating System", "Security of Computer System", "Word Processing", "Programme Development", "Presentation Software", "Using the Internet for Information and Communication"],
+    sinhala: ["මධ්‍ය සැකසුම් ඒකකය", "මෙහෙයුම් පද්ධතිය", "පරිගණක පද්ධතියේ ආරක්ෂාව", "වදන් සැකසීම", "ක්‍රමලේඛ සංවර්ධනය", "සමර්පණ මෘදුකාංග", "තොරතුරු හා සන්නිවේදනය සඳහා අන්තර්ජාලය භාවිතය"],
+  },
+  GRADE_8: {
+    english: ["Number Systems", "Configuring and Formatting a Computer", "Word Processing", "Programming", "Physical Computing", "Internet"],
+    sinhala: ["සංඛ්‍යා පද්ධති", "මෙහෙයුම් පද්ධතිය භාවිතයෙන් පරිගණකයක් වින්‍යාස කිරීම සහ සීරුමාරු කිරීම", "වදන් සැකසීම", "ක්‍රමලේඛ ගොඩනැගීම", "භෞතික ආගණනය සඳහා මෘදුකාංග භාවිතය", "අන්තර්ජාලයේ සැරිසැරීම"],
+  },
+  GRADE_9: {
+    english: ["Preparation of Computer Specifications", "Electronic Spreadsheets", "Programming", "Use of Microcontrollers", "Computer Networks", "ICT and Society"],
+    sinhala: ["පරිගණක සහ පර්යන්ත උපාංග මිල දී ගැනීම සඳහා පිරිවිතර සැකසීම", "විද්‍යුත් පැතුරුම්පත්", "ක්‍රමලේඛ ගොඩනැගීම", "ක්ෂුද්‍ර පාලක භාවිතය", "පරිගණක ජාලකරණය", "තොරතුරු හා සන්නිවේදන තාක්ෂණය සහ සමාජය"],
+  },
+  GRADE_10: {
+    english: ["Information and Communication Technology", "Fundamentals of a Computer System", "Data Representation Methods in the Computer System", "Logic Gates with Boolean Functions", "Operating Systems", "Word Processing", "Electronic Spreadsheets", "Electronic Presentations", "Database"],
+    sinhala: ["තොරතුරු හා සන්නිවේදන තාක්ෂණය", "පරිගණකය හඳුනා ගැනීම", "පරිගණක පද්ධතියේ දත්ත නිරූපණයට භාවිත කරන ක්‍රම", "තාර්කික ද්වාර සමග බූලීය වීජ ගණිතය", "මෙහෙයුම් පද්ධති", "වදන් සැකසීම", "විද්‍යුත් පැතුරුම්පත්", "ඉලෙක්ට්‍රොනික සමර්පණ", "දත්ත සමුදාය"],
+  },
+  GRADE_11: {
+    english: ["Programming", "System Development Life Cycle", "The Internet and Electronic Mail", "Use of Multimedia", "Web Designing Using Multimedia", "Information and Communication Technology and Society"],
+    sinhala: ["ගැටලු විසඳීමට ක්‍රමලේඛ ලිවීම", "තොරතුරු පද්ධති සංවර්ධන ක්‍රියාවලිය", "අන්තර්ජාලය හා විද්‍යුත් තැපෑල", "බහුමාධ්‍ය භාවිතය", "බහුමාධ්‍ය තාක්ෂණය යොදා ගනිමින් සරල වෙබ් අඩවි නිර්මාණය", "සමාජය සහ තොරතුරු හා සන්නිවේදන තාක්ෂණය"],
+  },
+};
+
 module.exports = {
   async up(queryInterface) {
     const db = queryInterface.sequelize;
@@ -70,6 +97,7 @@ module.exports = {
     for (const [code, nameEn, nameSi, sortOrder] of levels) {
       const level = await one("SELECT id FROM academic_levels WHERE code = ?", [code]);
       const isAl = code === "AL";
+      const courseGroup = isAl ? "AL" : Number(code.slice(6)) >= 10 ? "OL" : "SCHOOL";
       const slug = isAl ? "al-ict" : `${code.toLowerCase().replace("_", "-")}-ict`;
       let course = await one("SELECT id FROM courses WHERE slug = ?", [slug]);
       const titleEn = isAl ? "A/L Information and Communication Technology" : `${nameEn} ICT`;
@@ -92,6 +120,7 @@ module.exports = {
             titleSi,
             slug,
             code: `${code}-ICT`,
+            courseGroup,
             academicLevel: isAl ? "al" : "ol",
             description: shortDescriptionEn,
             shortDescriptionEn,
@@ -107,8 +136,8 @@ module.exports = {
         ]);
       } else {
         await db.query(
-          "UPDATE courses SET academicLevelId = ?, titleEn = ?, titleSi = ?, shortDescriptionEn = ?, shortDescriptionSi = ?, isFeatured = ?, isPublic = true, publishedAt = COALESCE(publishedAt, ?), updatedAt = ? WHERE id = ?",
-          { replacements: [level.id, titleEn, titleSi, shortDescriptionEn, shortDescriptionSi, isAl, now, now, course.id] },
+          "UPDATE courses SET academicLevelId = ?, courseGroup = ?, titleEn = ?, titleSi = ?, shortDescriptionEn = ?, shortDescriptionSi = ?, isFeatured = ?, isPublic = true, publishedAt = COALESCE(publishedAt, ?), updatedAt = ? WHERE id = ?",
+          { replacements: [level.id, courseGroup, titleEn, titleSi, shortDescriptionEn, shortDescriptionSi, isAl, now, now, course.id] },
         );
       }
 
@@ -138,6 +167,32 @@ module.exports = {
             "UPDATE course_tracks SET courseId = ?, mediumId = ?, title = ?, slug = ?, status = ?, availabilityStatus = ?, isPublic = ?, enrolmentOpen = ?, sortOrder = ?, updatedAt = ? WHERE id = ?",
             { replacements: [course.id, medium.id, trackValues.title, trackValues.slug, trackValues.status, trackValues.availabilityStatus, trackValues.isPublic, trackValues.enrolmentOpen, trackValues.sortOrder, now, track.id] },
           );
+        }
+
+        if (!isAl) {
+          const currentTrack = await one("SELECT id FROM course_tracks WHERE slug = ?", [trackSlug]);
+          const lessons = catalogue[code][mediumCode];
+          for (const [index, title] of lessons.entries()) {
+            const lessonNumber = index + 1;
+            const lessonSlug = `lesson-${String(lessonNumber).padStart(2, "0")}`;
+            const existingLesson = await one(
+              "SELECT id FROM lessons WHERE trackId = ? AND slug = ?",
+              [currentTrack.id, lessonSlug],
+            );
+            const values = [title, lessonNumber, lessonNumber, now];
+            if (!existingLesson) {
+              await queryInterface.bulkInsert("lessons", [{
+                id: randomUUID(), trackId: currentTrack.id, title, slug: lessonSlug,
+                lessonNumber, estimatedPeriods: null, summary: null, accessPolicy: "free",
+                status: "published", sortOrder: lessonNumber, createdAt: now, updatedAt: now,
+              }]);
+            } else {
+              await db.query(
+                "UPDATE lessons SET title = ?, lessonNumber = ?, sortOrder = ?, updatedAt = ? WHERE id = ?",
+                { replacements: [...values, existingLesson.id] },
+              );
+            }
+          }
         }
       }
     }

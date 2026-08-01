@@ -1,4 +1,13 @@
 node_modules/
 .env
-storage/uploads/
-uploads/
+.env.*
+!.env.example
+coverage/
+dist/
+build/
+logs/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

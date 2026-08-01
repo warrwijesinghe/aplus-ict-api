@@ -9,6 +9,9 @@ export const defineCourse = (sequelize) =>
     titleSi: DataTypes.STRING,
     slug: { type: DataTypes.STRING, unique: true },
     code: DataTypes.STRING,
+    // The academic area groups grade-level records without introducing a
+    // parallel catalogue or separate LMS implementation.
+    courseGroup: DataTypes.STRING,
     academicLevel: { type: DataTypes.ENUM("al", "ol"), defaultValue: "al" },
     description: DataTypes.TEXT,
     shortDescriptionEn: DataTypes.TEXT,

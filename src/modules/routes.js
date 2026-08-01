@@ -104,6 +104,7 @@ const publicTrack = (track) => {
           nameSi: track.Course.AcademicLevel.nameSi,
         }
       : null,
+    courseGroup: track.Course?.courseGroup || null,
     availabilityStatus: track.availabilityStatus || "active",
     isFeatured: Boolean(track.Course?.isFeatured),
     isPublic: Boolean(track.isPublic ?? track.Course?.isPublic),
@@ -132,9 +133,19 @@ const publicCourseInclude = () => [
 
 const publicTrackWhere = (query) => {
   const where = { status: "published", isPublic: true };
+  const academicLevel = query.academicLevel || query.level;
+  const allowedAreas = new Set(["AL", "OL", "SCHOOL"]);
+  const allowedMedia = new Set(["sinhala", "english"]);
+  if (academicLevel && !allowedAreas.has(academicLevel))
+    throw new ApiError(422, "Invalid academicLevel filter");
+  if (query.grade && !/^(6|7|8|9|10|11)$/.test(query.grade))
+    throw new ApiError(422, "Invalid grade filter");
+  if (query.medium && !allowedMedia.has(query.medium))
+    throw new ApiError(422, "Invalid medium filter");
   if (query.availability) where.availabilityStatus = query.availability;
   if (query.medium) where["$Medium.code$"] = query.medium;
-  if (query.level) where["$Course.AcademicLevel.code$"] = query.level;
+  if (academicLevel) where["$Course.courseGroup$"] = academicLevel;
+  if (query.grade) where["$Course.AcademicLevel.code$"] = `GRADE_${query.grade}`;
   if (query.featured === "true") where["$Course.isFeatured$"] = true;
   return where;
 };
@@ -367,7 +378,7 @@ router.get(
 router.get("/site-profile", (req, res) =>
   send(res, {
     brandName: "A Plus ICT",
-    shortDescription: "A/L ICT learning platform",
+    shortDescription: "Structured ICT learning from Grade 6 to A/L.",
     socialLinks: [
       {
         id: "facebook",
@@ -1058,6 +1069,7 @@ crud("courses", db.Course, [
   "titleSi",
   "slug",
   "code",
+  "courseGroup",
   "academicLevel",
   "description",
   "shortDescriptionEn",
