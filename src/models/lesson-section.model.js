@@ -3,6 +3,7 @@ import { defineModel } from "./helpers.js";
 export const defineLessonSection = (sequelize) =>
   defineModel(sequelize, "LessonSection", {
     lessonId: DataTypes.UUID,
+    topicId: DataTypes.UUID,
     type: {
       type: DataTypes.ENUM(
         "heading",
@@ -20,10 +21,14 @@ export const defineLessonSection = (sequelize) =>
       allowNull: false,
     },
     title: DataTypes.STRING,
+    titleEn: DataTypes.STRING,
+    titleSi: DataTypes.STRING,
+    descriptionEn: DataTypes.TEXT,
+    descriptionSi: DataTypes.TEXT,
     // A lesson can mix open content and premium content. Buying the lesson
     // unlocks only the sections marked as paid.
     accessPolicy: {
-      type: DataTypes.ENUM("free", "paid"),
+      type: DataTypes.ENUM("free", "paid", "preview"),
       defaultValue: "free",
     },
     content: DataTypes.TEXT("long"),
@@ -32,4 +37,5 @@ export const defineLessonSection = (sequelize) =>
     config: DataTypes.JSON,
     sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
     isVisible: { type: DataTypes.BOOLEAN, defaultValue: true },
+    status: { type: DataTypes.ENUM("draft", "published", "archived"), defaultValue: "published" },
   });

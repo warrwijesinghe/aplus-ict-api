@@ -2,10 +2,12 @@ import { sequelize } from "../config/database.js";
 import { defineUser } from "./user.model.js";
 import { defineRefreshToken } from "./refresh-token.model.js";
 import { defineCategory } from "./category.model.js";
+import { defineAcademicLevel } from "./academic-level.model.js";
 import { defineCourse } from "./course.model.js";
 import { defineMedium } from "./medium.model.js";
 import { defineCourseTrack } from "./course-track.model.js";
 import { defineLesson } from "./lesson.model.js";
+import { defineTopic } from "./topic.model.js";
 import { defineLessonSection } from "./lesson-section.model.js";
 import { defineEnrolment } from "./enrolment.model.js";
 import { defineEntitlement } from "./entitlement.model.js";
@@ -28,10 +30,12 @@ import { defineDownloadableResource } from "./downloadable-resource.model.js";
 export const User = defineUser(sequelize);
 export const RefreshToken = defineRefreshToken(sequelize);
 export const Category = defineCategory(sequelize);
+export const AcademicLevel = defineAcademicLevel(sequelize);
 export const Course = defineCourse(sequelize);
 export const Medium = defineMedium(sequelize);
 export const CourseTrack = defineCourseTrack(sequelize);
 export const Lesson = defineLesson(sequelize);
+export const Topic = defineTopic(sequelize);
 export const LessonSection = defineLessonSection(sequelize);
 export const Enrolment = defineEnrolment(sequelize);
 export const Entitlement = defineEntitlement(sequelize);
@@ -53,11 +57,18 @@ export const DownloadableResource = defineDownloadableResource(sequelize);
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
 Course.belongsTo(Category, { foreignKey: "categoryId" });
+AcademicLevel.hasMany(Course, { foreignKey: "academicLevelId" });
+Course.belongsTo(AcademicLevel, { foreignKey: "academicLevelId" });
 Course.hasMany(CourseTrack, { foreignKey: "courseId" });
 CourseTrack.belongsTo(Course, { foreignKey: "courseId" });
 CourseTrack.belongsTo(Medium, { foreignKey: "mediumId" });
 CourseTrack.hasMany(Lesson, { foreignKey: "trackId" });
+Lesson.belongsTo(CourseTrack, { foreignKey: "trackId" });
 Lesson.hasMany(LessonSection, { foreignKey: "lessonId" });
+Lesson.hasMany(Topic, { foreignKey: "lessonId" });
+Topic.belongsTo(Lesson, { foreignKey: "lessonId" });
+Topic.hasMany(LessonSection, { foreignKey: "topicId" });
+LessonSection.belongsTo(Topic, { foreignKey: "topicId" });
 Lesson.hasMany(Product, { foreignKey: "lessonId" });
 // Commerce relationships. Entitlements retain IDs to preserve a clear commerce/learning boundary.
 Order.hasMany(OrderItem, { foreignKey: "orderId" });
@@ -89,10 +100,12 @@ export const db = {
   User,
   RefreshToken,
   Category,
+  AcademicLevel,
   Course,
   Medium,
   CourseTrack,
   Lesson,
+  Topic,
   LessonSection,
   Enrolment,
   Entitlement,

@@ -1,11 +1,19 @@
 "use strict";
 const { randomUUID } = require("crypto");
+const { QueryTypes } = require("sequelize");
 // The migration owns the final syllabus snapshot. Reusing it here keeps new
 // databases aligned with the live catalogue without duplicating 26 lesson titles.
 const { syllabus } = require("../migrations/202607300002-update-al-ict-syllabus-lessons.cjs");
 
 module.exports = {
   async up(q) {
+    // Seeder commands can be run more than once in development. A populated
+    // A/L catalogue is administrator-owned, so never duplicate or overwrite it.
+    const existing = await q.sequelize.query(
+      "SELECT id FROM categories WHERE slug = 'al-ict' LIMIT 1",
+      { type: QueryTypes.SELECT },
+    );
+    if (existing.length) return;
     const now = new Date(),
       categoryId = randomUUID(),
       courseId = randomUUID(),

@@ -9,7 +9,29 @@ import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./core/middleware.js";
 import { sequelize } from "./config/database.js";
 import path from "path";
+import crypto from "crypto";
 export const app = express();
+// Keep local and development diagnostics useful without logging credentials,
+// tokens, request bodies, or query values.
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  const requestId = crypto.randomUUID().slice(0, 8);
+  const origin = req.get("origin");
+  let originHost = "direct";
+  try {
+    originHost = origin ? new URL(origin).host : "direct";
+  } catch {
+    originHost = "invalid";
+  }
+  res.set("X-Request-Id", requestId);
+  res.on("finish", () => {
+    if (req.path.startsWith("/api/") || req.path === "/health" || req.path === "/ready")
+      console.info(
+        `[api] time=${new Date().toISOString()} id=${requestId} method=${req.method} path=${req.path} status=${res.statusCode} durationMs=${Date.now() - startedAt} user=${req.user?.sub || "anonymous"} origin=${originHost}`,
+      );
+  });
+  next();
+});
 // Nginx is the TLS reverse proxy in deployment, so Express must trust proxy headers.
 app.set("trust proxy", 1);
 app.use(helmet());

@@ -90,10 +90,27 @@ const publicTrack = (track) => {
     id: track.id,
     slug: track.slug,
     title: track.title,
-    shortDescription: track.Course?.description || "",
-    description: track.Course?.description || "",
+    titleEn: track.Course?.titleEn || track.Course?.title || track.title,
+    titleSi: track.Course?.titleSi || null,
+    shortDescription: track.Course?.shortDescriptionEn || track.Course?.description || "",
+    shortDescriptionEn: track.Course?.shortDescriptionEn || track.Course?.description || "",
+    shortDescriptionSi: track.Course?.shortDescriptionSi || null,
+    description: track.Course?.description || track.Course?.shortDescriptionEn || "",
     medium: track.Medium,
-    syllabusLessonCount: track.Lessons?.length || 0,
+    academicLevel: track.Course?.AcademicLevel
+      ? {
+          code: track.Course.AcademicLevel.code,
+          nameEn: track.Course.AcademicLevel.nameEn,
+          nameSi: track.Course.AcademicLevel.nameSi,
+        }
+      : null,
+    availabilityStatus: track.availabilityStatus || "active",
+    isFeatured: Boolean(track.Course?.isFeatured),
+    isPublic: Boolean(track.isPublic ?? track.Course?.isPublic),
+    enrolmentOpen: Boolean(track.enrolmentOpen),
+    sortOrder: track.sortOrder,
+    syllabusLessonCount:
+      track.availabilityStatus === "coming_soon" ? null : track.Lessons?.length || 0,
     freeContentCount,
     paidContentCount,
     // These aliases preserve the existing web client contract while its labels
@@ -103,11 +120,31 @@ const publicTrack = (track) => {
   };
 };
 
+const publicCourseInclude = () => [
+  {
+    model: db.Course,
+    where: { status: "published", isPublic: true },
+    include: [db.AcademicLevel],
+  },
+  db.Medium,
+  publishedLessonInclude(),
+];
+
+const publicTrackWhere = (query) => {
+  const where = { status: "published", isPublic: true };
+  if (query.availability) where.availabilityStatus = query.availability;
+  if (query.medium) where["$Medium.code$"] = query.medium;
+  if (query.level) where["$Course.AcademicLevel.code$"] = query.level;
+  if (query.featured === "true") where["$Course.isFeatured$"] = true;
+  return where;
+};
+
 const publicLesson = (lesson) => {
   const { freeContentCount, paidContentCount } = contentCounts(lesson);
 
   return {
     id: lesson.id,
+    slug: lesson.slug,
     lessonNumber: lesson.lessonNumber,
     title: lesson.title,
     shortDescription: lesson.summary,
@@ -138,7 +175,7 @@ const publishedLessonInclude = () => ({
   include: [
     {
       model: db.LessonSection,
-      where: { isVisible: true },
+      where: { isVisible: true, status: "published" },
       required: false,
     },
     {
@@ -149,16 +186,82 @@ const publishedLessonInclude = () => ({
   ],
 });
 
+const safeLearningContent = (section, isUnlocked, progress) => {
+  const isLocked = sectionAccessPolicy(section) === "paid" && !isUnlocked;
+  return {
+    id: section.id,
+    title: section.titleEn || section.title,
+    titleEn: section.titleEn || section.title,
+    titleSi: section.titleSi || null,
+    descriptionEn: section.descriptionEn || null,
+    descriptionSi: section.descriptionSi || null,
+    contentType: section.type,
+    accessLevel: sectionAccessPolicy(section),
+    sortOrder: section.sortOrder,
+    isLocked,
+    progress: progress || { status: "not_started" },
+    // Content bodies and URLs are only returned once the server grants access.
+    ...(isLocked
+      ? {}
+      : {
+          content: section.content,
+          youtubeUrl: section.youtubeUrl,
+          resourceId: section.resourceId,
+          config: section.config,
+        }),
+  };
+};
+
+const lessonTopics = async (lesson, userId) => {
+  const [topics, contentProgress, unlocked] = await Promise.all([
+    db.Topic.findAll({
+      where: { lessonId: lesson.id, status: "published" },
+      include: [{ model: db.LessonSection, where: { isVisible: true, status: "published" }, required: false }],
+      order: [["sortOrder", "ASC"], [db.LessonSection, "sortOrder", "ASC"]],
+    }),
+    userId
+      ? db.ContentProgress.findAll({ where: { userId } })
+      : Promise.resolve([]),
+    userId ? canAccessLesson(userId, lesson) : Promise.resolve(false),
+  ]);
+  const progressByContent = new Map(contentProgress.map((item) => [item.lessonSectionId, item]));
+  const mapped = topics.map((topic) => ({
+    id: topic.id,
+    title: topic.titleEn || topic.title,
+    titleEn: topic.titleEn || topic.title,
+    titleSi: topic.titleSi || null,
+    descriptionEn: topic.descriptionEn || null,
+    descriptionSi: topic.descriptionSi || null,
+    sortOrder: topic.sortOrder,
+    contentItems: (topic.LessonSections || []).map((section) =>
+      safeLearningContent(section, unlocked, progressByContent.get(section.id)),
+    ),
+  }));
+  // Existing published content predates topics. It remains available as one
+  // clearly named fallback topic rather than being hidden or fabricated.
+  const ungrouped = (lesson.LessonSections || []).filter((section) => !section.topicId);
+  if (ungrouped.length)
+    mapped.unshift({
+      id: `legacy-${lesson.id}`,
+      title: "Lesson content",
+      titleEn: "Lesson content",
+      titleSi: null,
+      descriptionEn: null,
+      descriptionSi: null,
+      sortOrder: 0,
+      contentItems: ungrouped.map((section) =>
+        safeLearningContent(section, unlocked, progressByContent.get(section.id)),
+      ),
+    });
+  return { topics: mapped, premiumUnlocked: unlocked };
+};
+
 router.get(
   "/public/courses",
   asyncHandler(async (req, res) => {
     const tracks = await db.CourseTrack.findAll({
-      where: { status: "published" },
-      include: [
-        { model: db.Course, where: { status: "published" } },
-        db.Medium,
-        publishedLessonInclude(),
-      ],
+      where: publicTrackWhere(req.query),
+      include: publicCourseInclude(),
       order: [["sortOrder", "ASC"]],
     });
     send(res, tracks.map(publicTrack));
@@ -169,11 +272,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
       where: { slug: req.params.slug, status: "published" },
-      include: [
-        { model: db.Course, where: { status: "published" } },
-        db.Medium,
-        publishedLessonInclude(),
-      ],
+      include: publicCourseInclude(),
     });
     if (!track) throw new ApiError(404, "Course track not found");
     send(res, publicTrack(track));
@@ -184,17 +283,47 @@ router.get(
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
       where: { slug: req.params.slug, status: "published" },
-      include: [
-        { model: db.Course, where: { status: "published" } },
-        db.Medium,
-        publishedLessonInclude(),
-      ],
+      include: publicCourseInclude(),
       order: [[db.Lesson, "sortOrder", "ASC"]],
     });
     if (!track) throw new ApiError(404, "Course track not found");
     send(res, {
       ...publicTrack(track),
       lessons: (track.Lessons || []).map(publicLesson),
+    });
+  }),
+);
+router.get(
+  "/public/courses/:courseSlug/lessons/:lessonSlug",
+  optionallyAuthenticate,
+  asyncHandler(async (req, res) => {
+    const track = await db.CourseTrack.findOne({
+      where: { slug: req.params.courseSlug, status: "published", isPublic: true },
+      include: publicCourseInclude(),
+    });
+    if (!track) throw new ApiError(404, "Course not found");
+    const lesson = await db.Lesson.findOne({
+      where: { trackId: track.id, slug: req.params.lessonSlug, status: "published" },
+      include: [
+        { model: db.LessonSection, where: { isVisible: true, status: "published" }, required: false },
+        { model: db.Product, where: { status: "active" }, required: false },
+      ],
+    });
+    if (!lesson) throw new ApiError(404, "Lesson not found");
+    const { topics, premiumUnlocked } = await lessonTopics(lesson, req.user?.sub);
+    const summary = publicLesson(lesson);
+    send(res, {
+      course: publicTrack(track),
+      lesson: {
+        ...summary,
+        titleEn: lesson.title,
+        titleSi: null,
+        descriptionEn: lesson.summary,
+        descriptionSi: null,
+        topicCount: topics.length,
+        premiumUnlocked,
+        topics,
+      },
     });
   }),
 );
@@ -388,6 +517,12 @@ router.patch(
   "/lessons/:id/progress",
   authenticate,
   asyncHandler(async (req, res) => {
+    const lesson = await db.Lesson.findByPk(req.params.id, {
+      include: [{ model: db.CourseTrack }],
+    });
+    if (!lesson) throw new ApiError(404, "Lesson not found");
+    if (lesson.CourseTrack?.availabilityStatus === "coming_soon")
+      throw new ApiError(403, "Progress is unavailable for a coming-soon course");
     // Clamp client input; completion is derived from the stored percentage.
     const percentage = Math.max(
       0,
@@ -522,7 +657,11 @@ router.post(
     if (!section) throw new ApiError(404, "Content item not found");
     if (!isPublishedSection(section))
       throw new ApiError(404, "Content item not found");
-    const lesson = await db.Lesson.findByPk(section.lessonId);
+    const lesson = await db.Lesson.findByPk(section.lessonId, {
+      include: [{ model: db.CourseTrack }],
+    });
+    if (lesson?.CourseTrack?.availabilityStatus === "coming_soon")
+      throw new ApiError(403, "Progress is unavailable for a coming-soon course");
     if (!(await canAccessContent(req.user.sub, lesson, section)))
       throw new ApiError(403, "Premium content access required");
     const [progress] = await db.ContentProgress.findOrCreate({
@@ -895,15 +1034,39 @@ crud("categories", db.Category, [
   "status",
   "sortOrder",
 ]);
+crud("academic-levels", db.AcademicLevel, [
+  "code",
+  "nameEn",
+  "nameSi",
+  "sortOrder",
+  "isActive",
+]);
+crud("media", db.Medium, [
+  "code",
+  "name",
+  "nameEn",
+  "nameSi",
+  "locale",
+  "sortOrder",
+  "isActive",
+]);
 crud("courses", db.Course, [
   "categoryId",
+  "academicLevelId",
   "title",
+  "titleEn",
+  "titleSi",
   "slug",
   "code",
   "academicLevel",
   "description",
+  "shortDescriptionEn",
+  "shortDescriptionSi",
   "status",
   "sortOrder",
+  "isFeatured",
+  "isPublic",
+  "publishedAt",
 ]);
 crud("tracks", db.CourseTrack, [
   "courseId",
@@ -911,6 +1074,9 @@ crud("tracks", db.CourseTrack, [
   "title",
   "slug",
   "status",
+  "availabilityStatus",
+  "isPublic",
+  "enrolmentOpen",
   "sortOrder",
 ]);
 crud("lessons", db.Lesson, [
@@ -924,10 +1090,25 @@ crud("lessons", db.Lesson, [
   "status",
   "sortOrder",
 ]);
+crud("topics", db.Topic, [
+  "lessonId",
+  "title",
+  "titleEn",
+  "titleSi",
+  "descriptionEn",
+  "descriptionSi",
+  "status",
+  "sortOrder",
+]);
 crud("sections", db.LessonSection, [
   "lessonId",
+  "topicId",
   "type",
   "title",
+  "titleEn",
+  "titleSi",
+  "descriptionEn",
+  "descriptionSi",
   "accessPolicy",
   "content",
   "youtubeUrl",
@@ -935,6 +1116,7 @@ crud("sections", db.LessonSection, [
   "config",
   "sortOrder",
   "isVisible",
+  "status",
 ]);
 crud("products", db.Product, [
   "lessonId",

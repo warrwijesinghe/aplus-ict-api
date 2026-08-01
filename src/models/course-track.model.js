@@ -10,5 +10,11 @@ export const defineCourseTrack = (sequelize) =>
       type: DataTypes.ENUM("draft", "published", "archived"),
       defaultValue: "draft",
     },
+    availabilityStatus: {
+      type: DataTypes.ENUM("coming_soon", "active", "archived"),
+      defaultValue: "active",
+    },
+    isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
+    enrolmentOpen: { type: DataTypes.BOOLEAN, defaultValue: false },
     sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
   });
