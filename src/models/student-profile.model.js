@@ -5,6 +5,14 @@ import { defineModel } from "./helpers.js";
 export const defineStudentProfile = (sequelize) =>
   defineModel(sequelize, "StudentProfile", {
     userId: { type: DataTypes.UUID, allowNull: false, unique: true },
-    phone: DataTypes.STRING,
+    fullName: DataTypes.STRING,
+    mobileNumber: DataTypes.STRING,
+    whatsAppNumber: DataTypes.STRING,
+    examYear: DataTypes.INTEGER,
+    schoolName: DataTypes.STRING,
+    district: DataTypes.STRING,
     preferredMedium: DataTypes.ENUM("sinhala", "english"),
+    town: DataTypes.STRING,
+    guardianContactNumber: DataTypes.STRING,
+    referralSource: DataTypes.STRING,
   });

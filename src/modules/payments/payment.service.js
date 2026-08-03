@@ -13,6 +13,7 @@ export const confirmPaymentAndGrantEntitlements = async (
     const payment = await db.Payment.findByPk(paymentId, { transaction });
     if (!payment) throw new ApiError(404, "Payment not found");
     if (payment.status === "confirmed") return payment;
+    if (payment.status !== "submitted") throw new ApiError(409, "Only submitted payments can be confirmed");
 
     const order = await db.Order.findByPk(payment.orderId, { transaction });
     await payment.update(
@@ -39,5 +40,19 @@ export const confirmPaymentAndGrantEntitlements = async (
       })),
       { transaction, ignoreDuplicates: true },
     );
+    return payment;
+  });
+
+export const rejectPayment = async (paymentId, adminUserId, rejectionReason) =>
+  db.sequelize.transaction(async (transaction) => {
+    if (!String(rejectionReason || "").trim())
+      throw new ApiError(422, "A rejection reason is required");
+    const payment = await db.Payment.findByPk(paymentId, { transaction });
+    if (!payment) throw new ApiError(404, "Payment not found");
+    if (payment.status === "confirmed") throw new ApiError(409, "A confirmed payment cannot be rejected");
+    if (payment.status === "rejected") return payment;
+    const order = await db.Order.findByPk(payment.orderId, { transaction });
+    await payment.update({ status: "rejected", rejectedBy: adminUserId, rejectedAt: new Date(), rejectionReason: String(rejectionReason).trim() }, { transaction });
+    await order.update({ status: "awaiting_payment" }, { transaction });
     return payment;
   });

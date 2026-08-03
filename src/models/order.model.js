@@ -4,6 +4,7 @@ export const defineOrder = (sequelize) =>
   defineModel(sequelize, "Order", {
     userId: DataTypes.UUID,
     orderNumber: { type: DataTypes.STRING, unique: true },
+    idempotencyKey: { type: DataTypes.STRING, unique: true },
     status: {
       type: DataTypes.ENUM("awaiting_payment", "paid", "cancelled"),
       defaultValue: "awaiting_payment",

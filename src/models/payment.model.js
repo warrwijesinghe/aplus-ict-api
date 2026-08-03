@@ -16,4 +16,7 @@ export const definePayment = (sequelize) =>
     paymentSlipResourceId: DataTypes.UUID,
     confirmedBy: DataTypes.UUID,
     confirmedAt: DataTypes.DATE,
+    rejectedBy: DataTypes.UUID,
+    rejectedAt: DataTypes.DATE,
+    rejectionReason: DataTypes.TEXT,
   });

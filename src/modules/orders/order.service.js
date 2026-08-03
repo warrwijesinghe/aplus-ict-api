@@ -3,7 +3,10 @@ import { db } from "../../models/index.js";
 import { ApiError } from "../../core/errors.js";
 
 /** Create an order and immutable line-item prices in a single database transaction. */
-export const createLessonOrder = async (userId, productIds) => {
+export const createLessonOrder = async (userId, productIds, idempotencyKey) => {
+  if (!idempotencyKey) throw new ApiError(422, "An idempotency key is required");
+  const existing = await db.Order.findOne({ where: { userId, idempotencyKey } });
+  if (existing) return existing;
   const products = await db.Product.findAll({
     where: { id: productIds || [], status: "active" },
     include: [{ model: db.Lesson, include: [db.CourseTrack] }],
@@ -28,6 +31,7 @@ export const createLessonOrder = async (userId, productIds) => {
         orderNumber: `APL-${Date.now()}-${crypto.randomBytes(2).toString("hex")}`,
         total,
         currency: "LKR",
+        idempotencyKey,
       },
       { transaction },
     );

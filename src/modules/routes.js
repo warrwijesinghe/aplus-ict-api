@@ -25,8 +25,10 @@ import {
 } from "./learning/access.service.js";
 import { accessibleProgress } from "./learning/progress.service.js";
 import { createLessonOrder } from "./orders/order.service.js";
-import { confirmPaymentAndGrantEntitlements } from "./payments/payment.service.js";
+import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/payment.service.js";
 import { findStudentUsers } from "./users/user.service.js";
+import { getStudentProfile, saveStudentProfile } from "./students/student-profile.service.js";
+import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment } from "./students/enrollment.service.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -41,6 +43,12 @@ const send = (res, data, status = 200) => res.status(status).json({ data });
 
 // Register authentication before feature routes that use its middleware.
 authRoutes(router);
+
+router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
+router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
+router.get("/student/enrollments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
+router.get("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseId))));
+router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId), 201)));
 
 const sectionAccessPolicy = (section) =>
   section.accessPolicy === "paid" ? "paid" : "free";
@@ -586,6 +594,7 @@ router.get(
       order: [[db.Lesson, "sortOrder", "ASC"]],
     });
     if (!track) throw new ApiError(404, "Course track not found");
+    await touchEnrollment(req.user.sub, track.id);
     const sections = (track.Lessons || []).flatMap(
       (lesson) => lesson.LessonSections || [],
     );
@@ -705,7 +714,7 @@ router.post(
   "/orders",
   authenticate,
   asyncHandler(async (req, res) => {
-    const order = await createLessonOrder(req.user.sub, req.body.productIds);
+    const order = await createLessonOrder(req.user.sub, req.body.productIds, req.get("Idempotency-Key"));
     send(res, order, 201);
   }),
 );
@@ -731,6 +740,9 @@ router.post(
       where: { id: req.params.id, userId: req.user.sub },
     });
     if (!order) throw new ApiError(404, "Order not found");
+    if (!req.file) throw new ApiError(422, "A payment slip is required");
+    const existingSubmitted = await db.Payment.findOne({ where: { orderId: order.id, status: "submitted" } });
+    if (existingSubmitted) throw new ApiError(409, "Payment is already under review");
     let paymentSlipResource = null;
     if (req.file) {
       const { mimeType, extension } = validatePaymentSlip(
@@ -1150,12 +1162,47 @@ router.get(
     send(res, await db.Order.findAll({ include: [db.OrderItem, db.Payment] })),
   ),
 );
+router.get(
+  "/admin/payments",
+  ...admin,
+  asyncHandler(async (req, res) => {
+    const payments = await db.Payment.findAll({
+      include: [{
+        model: db.Order,
+        include: [
+          { model: db.User, include: [db.StudentProfile] },
+          { model: db.OrderItem, include: [db.Product, db.Lesson] },
+        ],
+      }],
+      order: [["createdAt", "DESC"]],
+    });
+    send(res, payments.map((payment) => ({
+      ...payment.toJSON(),
+      orderNumber: payment.Order?.orderNumber,
+      student: payment.Order?.User ? {
+        name: payment.Order.User.name,
+        email: payment.Order.User.email,
+        mobileNumber: payment.Order.User.StudentProfile?.mobileNumber || null,
+        whatsAppNumber: payment.Order.User.StudentProfile?.whatsAppNumber || null,
+      } : null,
+      items: (payment.Order?.OrderItems || []).map((item) => ({
+        id: item.id, name: item.name, unitPrice: item.unitPrice,
+        product: item.Product?.name, lesson: item.Lesson?.title,
+      })),
+      expectedTotal: payment.Order?.total,
+    })));
+  }),
+);
 router.post(
   "/admin/payments/:id/confirm",
   ...admin,
   asyncHandler(async (req, res) => {
-    await confirmPaymentAndGrantEntitlements(req.params.id, req.user.sub);
-    send(res, { ok: true });
+    send(res, await confirmPaymentAndGrantEntitlements(req.params.id, req.user.sub));
   }),
+);
+router.post(
+  "/admin/payments/:id/reject",
+  ...admin,
+  asyncHandler(async (req, res) => send(res, await rejectPayment(req.params.id, req.user.sub, req.body.rejectionReason))),
 );
 export default router;
