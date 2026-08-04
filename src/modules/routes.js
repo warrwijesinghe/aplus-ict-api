@@ -29,6 +29,8 @@ import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/pa
 import { findStudentUsers } from "./users/user.service.js";
 import { getStudentProfile, saveStudentProfile } from "./students/student-profile.service.js";
 import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment } from "./students/enrollment.service.js";
+import siteRoutes from "./site/routes.js";
+import directPayRoutes from "./integrations/directpay/routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -43,6 +45,8 @@ const send = (res, data, status = 200) => res.status(status).json({ data });
 
 // Register authentication before feature routes that use its middleware.
 authRoutes(router);
+router.use(siteRoutes);
+router.use(directPayRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
@@ -383,52 +387,6 @@ router.get(
   }),
 );
 
-router.get("/site-profile", (req, res) =>
-  send(res, {
-    brandName: "A Plus ICT",
-    shortDescription: "Structured ICT learning from Grade 6 to A/L.",
-    socialLinks: [
-      {
-        id: "facebook",
-        platform: "facebook",
-        label: "Facebook",
-        url: "https://www.facebook.com/APlusICTclass",
-      },
-      {
-        id: "youtube",
-        platform: "youtube",
-        label: "YouTube",
-        url: "https://www.youtube.com/@aplusictclass",
-      },
-      {
-        id: "tiktok",
-        platform: "tiktok",
-        label: "TikTok",
-        url: "https://www.tiktok.com/@aplus.ict",
-      },
-      {
-        id: "instagram",
-        platform: "instagram",
-        label: "Instagram",
-        url: "https://www.instagram.com/aplusict",
-      },
-      {
-        id: "whatsapp",
-        platform: "whatsapp",
-        label: "WhatsApp",
-        url: "https://wa.me/94717105837",
-      },
-    ],
-    contactChannels: [
-      {
-        id: "whatsapp",
-        label: "WhatsApp: 071 710 5837",
-        value: "071 710 5837",
-        publicUrl: "https://wa.me/94717105837",
-      },
-    ],
-  }),
-);
 router.get(
   "/categories",
   asyncHandler(async (req, res) =>
