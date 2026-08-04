@@ -36,6 +36,8 @@ const tableNames = Object.freeze({
   Permission: "permissions",
   UserRole: "user_roles",
   RolePermission: "role_permissions",
+  EducatorAssignment: "educator_assignments",
+  AuditLog: "audit_logs",
 });
 
 export const defineModel = (sequelize, name, fields, options = {}) =>

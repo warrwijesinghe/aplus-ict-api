@@ -5,4 +5,6 @@ export const definePermission = (sequelize) =>
   defineModel(sequelize, "Permission", {
     code: { type: DataTypes.STRING, allowNull: false, unique: true },
     name: { type: DataTypes.STRING, allowNull: false },
+    description: DataTypes.TEXT,
+    module: { type: DataTypes.STRING, allowNull: false, defaultValue: "general" },
   });

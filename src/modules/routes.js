@@ -31,10 +31,12 @@ import { getStudentProfile, saveStudentProfile } from "./students/student-profil
 import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment } from "./students/enrollment.service.js";
 import siteRoutes from "./site/routes.js";
 import directPayRoutes from "./integrations/directpay/routes.js";
+import { PERMISSIONS } from "../security/permissions.js";
+import { audit, requirePermission, requirePermissionForTrack } from "../security/authorization.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
-  admin = [authenticate, authorize("admin")],
+  admin = [authenticate, authorize("admin", "super_admin")],
   upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: env.maxDocumentUploadBytes },
@@ -47,6 +49,43 @@ const send = (res, data, status = 200) => res.status(status).json({ data });
 authRoutes(router);
 router.use(siteRoutes);
 router.use(directPayRoutes);
+
+const educatorInclude = [{ model: db.Role, attributes: ["code", "name"] }, { model: db.EducatorAssignment, as: "EducatorAssignments", required: false }];
+const asEducator = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, roles: (user.Roles || []).map((role) => role.code), status: user.status, assignedCourseCount: (user.EducatorAssignments || []).filter((item) => item.status === "active").length, lastLoginAt: user.lastLoginAt || null });
+const assignmentInclude = [{ model: db.User, as: "Educator", attributes: ["id", "name", "email", "status"] }, { model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium, { model: db.Course, attributes: ["id", "title", "titleEn"] }] }];
+const canAssignSuperAdmin = (req, roleCode) => roleCode !== "super_admin" || req.user.role === "super_admin";
+const activeSuperAdminCount = () => db.User.count({ where: { role: "super_admin", status: "active" } });
+
+router.get("/admin/roles", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (_req, res) => send(res, await db.Role.findAll({ include: [{ model: db.Permission, attributes: ["id", "code", "name", "module"] }], order: [["name", "ASC"]] }))));
+router.get("/admin/permissions", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (_req, res) => send(res, await db.Permission.findAll({ order: [["module", "ASC"], ["code", "ASC"]] }))));
+router.get("/admin/roles/:roleId/permissions", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (req, res) => { const role = await db.Role.findByPk(req.params.roleId, { include: [db.Permission] }); if (!role) throw new ApiError(404, "Role not found"); send(res, role.Permissions); }));
+router.get("/admin/educators", authenticate, requirePermission(PERMISSIONS.EDUCATORS_READ), asyncHandler(async (_req, res) => { const users = await db.User.findAll({ where: { role: ["teacher", "content_editor", "admin", "super_admin"] }, include: educatorInclude, order: [["name", "ASC"]] }); send(res, users.map(asEducator)); }));
+router.get("/admin/educators/:userId", authenticate, requirePermission(PERMISSIONS.EDUCATORS_READ), asyncHandler(async (req, res) => { const user = await db.User.findByPk(req.params.userId, { include: educatorInclude }); if (!user) throw new ApiError(404, "Educator not found"); send(res, asEducator(user)); }));
+router.patch("/admin/educators/:userId/role", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => {
+  const { role: roleCode, status } = req.body; const user = await db.User.findByPk(req.params.userId); const role = await db.Role.findOne({ where: { code: roleCode, isActive: true } });
+  if (!user || !role) throw new ApiError(422, "A valid educator and role are required");
+  if (!canAssignSuperAdmin(req, roleCode)) throw new ApiError(403, "Only a super administrator can assign that role");
+  if (user.role === "super_admin" && (roleCode !== "super_admin" || status === "disabled") && await activeSuperAdminCount() <= 1) throw new ApiError(422, "The final active super administrator cannot be removed");
+  await db.sequelize.transaction(async (transaction) => { await user.update({ role: roleCode, ...(status ? { status } : {}) }, { transaction }); await db.UserRole.destroy({ where: { userId: user.id }, transaction }); await db.UserRole.create({ userId: user.id, roleId: role.id }, { transaction }); });
+  await audit(req, status === "disabled" ? "user_deactivated" : "role_changed", "user", user.id, { role: roleCode }); send(res, { id: user.id, role: roleCode, status: status || user.status });
+}));
+router.get("/admin/educator-assignments", authenticate, requirePermission(PERMISSIONS.EDUCATORS_READ), asyncHandler(async (_req, res) => send(res, await db.EducatorAssignment.findAll({ include: assignmentInclude, order: [["createdAt", "DESC"]] }))));
+router.post("/admin/educator-assignments", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => {
+  const values = Object.fromEntries(["userId", "courseId", "courseTrackId", "assignmentRole", "canManageContent", "canManageQuestions", "canManageQuizzes", "canGradeAssignments", "canViewStudents"].filter((key) => key in req.body).map((key) => [key, req.body[key]]));
+  if (!values.userId || !values.assignmentRole || (!values.courseId && !values.courseTrackId) || !["teacher", "content_editor"].includes(values.assignmentRole)) throw new ApiError(422, "Educator, assignment role, and a course or track are required");
+  const [user, course, track] = await Promise.all([db.User.findByPk(values.userId), values.courseId ? db.Course.findByPk(values.courseId) : null, values.courseTrackId ? db.CourseTrack.findByPk(values.courseTrackId) : null]);
+  if (!user || (values.courseId && !course) || (values.courseTrackId && !track) || (track && values.courseId && track.courseId !== values.courseId)) throw new ApiError(422, "The selected educator, course, or track is invalid");
+  const duplicate = await db.EducatorAssignment.findOne({ where: { userId: values.userId, courseId: values.courseId || null, courseTrackId: values.courseTrackId || null, assignmentRole: values.assignmentRole, status: "active" } });
+  if (duplicate) throw new ApiError(409, "An active assignment already exists");
+  const assignment = await db.EducatorAssignment.create({ ...values, assignedByUserId: req.user.sub, assignedAt: new Date() }); await audit(req, "educator_assigned", "educator_assignment", assignment.id, { userId: assignment.userId, courseId: assignment.courseId, courseTrackId: assignment.courseTrackId }); send(res, assignment, 201);
+}));
+router.patch("/admin/educator-assignments/:id", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => { const assignment = await db.EducatorAssignment.findByPk(req.params.id); if (!assignment) throw new ApiError(404, "Assignment not found"); const fields = ["canManageContent", "canManageQuestions", "canManageQuizzes", "canGradeAssignments", "canViewStudents", "status"]; await assignment.update(Object.fromEntries(fields.filter((field) => field in req.body).map((field) => [field, req.body[field]]))); await audit(req, "educator_assignment_updated", "educator_assignment", assignment.id, { status: assignment.status }); send(res, assignment); }));
+router.delete("/admin/educator-assignments/:id", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => { const assignment = await db.EducatorAssignment.findByPk(req.params.id); if (!assignment) throw new ApiError(404, "Assignment not found"); await assignment.update({ status: "inactive" }); await audit(req, "educator_assignment_removed", "educator_assignment", assignment.id); send(res, { id: assignment.id, status: assignment.status }); }));
+
+// Educator workspaces expose only explicitly assigned tracks. Privileged roles retain operational access.
+router.get("/educator/tracks", authenticate, requirePermission(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const where = req.user.role === "admin" || req.user.role === "super_admin" ? {} : { userId: req.user.sub, status: "active" }; const assignments = await db.EducatorAssignment.findAll({ where, include: [{ model: db.CourseTrack, include: [db.Medium, db.Course] }] }); send(res, assignments.map((assignment) => ({ assignmentId: assignment.id, capabilities: { canManageContent: assignment.canManageContent, canManageQuestions: assignment.canManageQuestions, canManageQuizzes: assignment.canManageQuizzes, canGradeAssignments: assignment.canGradeAssignments, canViewStudents: assignment.canViewStudents }, track: assignment.CourseTrack }))); }));
+router.get("/educator/tracks/:trackId", ...requirePermissionForTrack(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId, { include: [db.Course, db.Medium] }); if (!track) throw new ApiError(404, "Course track not found"); send(res, track); }));
+router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(PERMISSIONS.LESSONS_UPDATE, "canManageContent"), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId); if (!track) throw new ApiError(404, "Course track not found"); const { title, status } = req.body; await track.update(Object.fromEntries([["title", title], ["status", status]].filter(([, value]) => value !== undefined))); send(res, track); }));
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));

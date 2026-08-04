@@ -4,18 +4,22 @@ import bcrypt from "bcrypt";
 import { env } from "../../config/env.js";
 import { db } from "../../models/index.js";
 import { ApiError, asyncHandler } from "../../core/errors.js";
+import { attachAuthorization, getAuthorization } from "../../security/authorization.js";
 // Persist only a refresh-token hash; the original token cannot be recovered from the database.
 const hash = (x) => crypto.createHash("sha256").update(x).digest("hex");
-const publicUser = (user) => ({
+const publicUser = (user, authorization = {}) => ({
   id: user.id,
   email: user.email,
   name: user.name,
-  role: user.role,
+  role: authorization.role || user.role,
+  roles: authorization.roles || [user.role],
+  permissions: authorization.permissions || [],
 });
 // Access tokens are short lived. The longer-lived refresh token stays in an HTTP-only cookie.
 const issue = async (user, res) => {
+  const authorization = await getAuthorization(user.id);
   const accessToken = jwt.sign(
-    { sub: user.id, role: user.role },
+    { sub: user.id, role: authorization.role },
     env.accessSecret,
     { expiresIn: "15m" },
   );
@@ -35,14 +39,14 @@ const issue = async (user, res) => {
     sameSite: "lax",
     path: "/api/v1/auth",
   });
-  return { accessToken, user: publicUser(user) };
+  return { accessToken, user: publicUser(user, authorization) };
 };
 export const authenticate = asyncHandler(async (req, res, next) => {
   const token = req.headers.authorization?.replace(/^Bearer\s+/, "");
   if (!token) throw new ApiError(401, "Authentication required");
   try {
     req.user = jwt.verify(token, env.accessSecret);
-    next();
+    attachAuthorization(req, res, next);
   } catch {
     throw new ApiError(401, "Invalid or expired access token");
   }
@@ -60,12 +64,8 @@ export const optionallyAuthenticate = (req, res, next) => {
     return next(new ApiError(401, "Invalid or expired access token"));
   }
 };
-export const authorize =
-  (...roles) =>
-  (req, res, next) =>
-    roles.includes(req.user.role)
-      ? next()
-      : next(new ApiError(403, "Insufficient permission"));
+export const authorize = (...roles) => (req, _res, next) =>
+  roles.includes(req.user.role) ? next() : next(new ApiError(403, "Insufficient permission"));
 export const authRoutes = (router) => {
   // Admin credentials are platform-managed. Student authentication is Google-only.
   router.post(
@@ -74,7 +74,7 @@ export const authRoutes = (router) => {
       const { email, password } = req.body;
       if (!email || !password)
         throw new ApiError(422, "Email and password are required");
-      const user = await db.User.findOne({ where: { email, role: "admin" } });
+      const user = await db.User.findOne({ where: { email, role: ["admin", "super_admin", "teacher", "content_editor"] } });
       if (
         !user ||
         !user.passwordHash ||
@@ -267,8 +267,8 @@ export const authRoutes = (router) => {
     "/auth/me",
     authenticate,
     asyncHandler(async (req, res) => {
-      const user = await db.User.findByPk(req.user.sub);
-      res.json({ data: publicUser(user) });
+      const authorization = await getAuthorization(req.user.sub);
+      res.json({ data: publicUser(authorization.user, authorization) });
     }),
   );
 };
@@ -282,7 +282,7 @@ export const bootstrapAdmin = async ({
   return db.User.create({
     email,
     name,
-    role: "admin",
+    role: "super_admin",
     passwordHash: await bcrypt.hash(password, 12),
   });
 };

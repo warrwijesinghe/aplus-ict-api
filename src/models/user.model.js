@@ -5,7 +5,8 @@ export const defineUser = (sequelize) =>
     email: { type: DataTypes.STRING, unique: true, allowNull: false },
     name: DataTypes.STRING,
     passwordHash: DataTypes.STRING,
-    role: { type: DataTypes.ENUM("student", "admin"), defaultValue: "student" },
+    // Compatibility value and primary-role cache. Normalized roles remain authoritative.
+    role: { type: DataTypes.STRING, defaultValue: "student" },
     status: {
       type: DataTypes.ENUM("active", "disabled"),
       defaultValue: "active",
