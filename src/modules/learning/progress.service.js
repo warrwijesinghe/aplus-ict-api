@@ -4,7 +4,9 @@
  * the denominator to include the newly available premium content.
  */
 export const accessibleProgress = (contentItems) => {
-  const accessibleItems = contentItems.filter((item) => !item.isLocked);
+  // Labels and future submit/pass activities cannot be completed by this
+  // player, so they never dilute a learner's current progress percentage.
+  const accessibleItems = contentItems.filter((item) => !item.isLocked && !["none", "submit", "pass"].includes(item.completionMode));
   const completedItems = accessibleItems.filter(
     (item) => item.progress?.status === "completed",
   );

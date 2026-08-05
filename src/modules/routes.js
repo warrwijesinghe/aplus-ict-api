@@ -40,6 +40,7 @@ import { audit, requirePermission, requirePermissionForTrack } from "../security
 import { createContentAdminRouter } from "./content/admin-content.routes.js";
 import { isPremium } from "./content/activity-registry.js";
 import { publishedWhere } from "./content/content.service.js";
+import studentPlayerRoutes from "./learning/student-player.routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -107,6 +108,7 @@ router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(P
 // course-track assignments. Legacy /admin/sections remains below for clients
 // that have not yet moved to the Learning Activity label.
 router.use(createContentAdminRouter());
+router.use(studentPlayerRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
@@ -644,16 +646,8 @@ router.get(
               accessPolicy: sectionAccessPolicy(section),
               displayOrder: section.sortOrder,
               isLocked,
-              // Locked content exposes only its label and type. The actual
-              // learning material is returned only after the lesson unlock.
-              ...(isLocked
-                ? {}
-                : {
-                    content: section.content,
-                    youtubeUrl: section.youtubeUrl,
-                    resourceId: section.resourceId,
-                    config: section.config,
-                  }),
+              // This overview is navigation/progress only. Current activity
+              // content is returned by the student player detail endpoint.
               progress: progressBySection.get(section.id) || {
                 status: "not_started",
               },
@@ -701,6 +695,8 @@ router.post(
       throw new ApiError(403, "Progress is unavailable for a coming-soon course");
     if (!(await canAccessContent(req.user.sub, lesson, section)))
       throw new ApiError(403, "Premium content access required");
+    if (section.completionMode !== "manual")
+      throw new ApiError(422, "This activity does not support manual completion");
     const [progress] = await db.ContentProgress.findOrCreate({
       where: { userId: req.user.sub, lessonSectionId: section.id },
       defaults: { status: "completed", completedAt: new Date() },

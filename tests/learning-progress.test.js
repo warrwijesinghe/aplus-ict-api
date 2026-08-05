@@ -30,4 +30,13 @@ describe("accessibleProgress", () => {
       progressPercent: 20,
     });
   });
+
+  it("excludes labels and future submission workflows from the current player denominator", () => {
+    expect(accessibleProgress([
+      { isLocked: false, completionMode: "none", progress: { status: "completed" } },
+      { isLocked: false, completionMode: "submit", progress: { status: "not_started" } },
+      { isLocked: false, completionMode: "pass", progress: { status: "not_started" } },
+      { isLocked: false, completionMode: "manual", progress: { status: "completed" } },
+    ])).toEqual({ completedActivities: 1, totalAccessibleActivities: 1, progressPercent: 100 });
+  });
 });

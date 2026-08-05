@@ -16,4 +16,7 @@ export const defineEnrolment = (sequelize) =>
     },
     enrolledAt: DataTypes.DATE,
     lastAccessedAt: DataTypes.DATE,
+    // Kept on the enrolled course record so continuation can be resolved
+    // without a student-profile/dashboard schema.
+    lastAccessedActivityId: DataTypes.UUID,
   });
