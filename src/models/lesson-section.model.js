@@ -39,6 +39,7 @@ export const defineLessonSection = (sequelize) =>
     instructions: DataTypes.TEXT,
     resourceId: DataTypes.UUID,
     config: DataTypes.JSON,
+    configVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
     completionMode: { type: DataTypes.ENUM("none", "view", "manual", "submit", "pass"), defaultValue: "none" },
     estimatedMinutes: DataTypes.INTEGER,
     maxScore: DataTypes.DECIMAL(10, 2),
@@ -46,6 +47,7 @@ export const defineLessonSection = (sequelize) =>
     sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
     isVisible: { type: DataTypes.BOOLEAN, defaultValue: true },
     status: { type: DataTypes.ENUM("draft", "published", "archived"), defaultValue: "published" },
+    publishedAt: DataTypes.DATE,
     availableFrom: DataTypes.DATE,
     availableUntil: DataTypes.DATE,
   });

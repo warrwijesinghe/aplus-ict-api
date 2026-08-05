@@ -1,5 +1,6 @@
 import { ApiError } from "../../core/errors.js";
 import { ACCESS_POLICIES, ACTIVITY_TYPES, COMPLETION_MODES, CONTENT_STATUSES, TRACK_AVAILABILITY } from "./activity-registry.js";
+import { validateActivityDraft } from "./activities/activity-validator.js";
 
 const has = (body, field) => Object.hasOwn(body, field);
 const oneOf = (value, allowed, field) => {
@@ -33,7 +34,7 @@ export const validateContentPayload = (body, kind) => {
   validateAvailability(body);
   if (has(body, "status")) oneOf(body.status, CONTENT_STATUSES, "status");
   if (kind === "track" && has(body, "availabilityStatus")) oneOf(body.availabilityStatus, TRACK_AVAILABILITY, "availabilityStatus");
-  if (kind !== "activity") return;
+  if (kind !== "activity") return body;
   if (has(body, "type")) oneOf(body.type, ACTIVITY_TYPES, "activity type");
   if (has(body, "accessPolicy")) oneOf(body.accessPolicy, ACCESS_POLICIES, "accessPolicy");
   if (has(body, "completionMode")) oneOf(body.completionMode, COMPLETION_MODES, "completionMode");
@@ -43,7 +44,7 @@ export const validateContentPayload = (body, kind) => {
   if (body.maxScore !== undefined && body.passingScore !== undefined && Number(body.passingScore) > Number(body.maxScore)) throw new ApiError(422, "passingScore cannot exceed maxScore");
   safeUrl(body.youtubeUrl, "youtubeUrl", true);
   safeUrl(body.externalUrl, "externalUrl");
-  if (body.config !== undefined && (body.config === null || Array.isArray(body.config) || typeof body.config !== "object")) throw new ApiError(422, "config must be an object");
+  return validateActivityDraft(body);
 };
 
 export const pick = (body, fields) => Object.fromEntries(fields.filter((field) => has(body, field)).map((field) => [field, body[field]]));

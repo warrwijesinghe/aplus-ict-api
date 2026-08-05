@@ -1,7 +1,4 @@
-export const ACTIVITY_TYPES = Object.freeze([
-  "label", "page", "rich_text", "video", "image", "pdf", "file", "download",
-  "external_link", "embed", "practical_activity", "assignment", "quiz",
-]);
+export { ACTIVITY_TYPES } from "./activities/activity-types.js";
 
 export const ACCESS_POLICIES = Object.freeze(["free", "premium"]);
 export const COMPLETION_MODES = Object.freeze(["none", "view", "manual", "submit", "pass"]);

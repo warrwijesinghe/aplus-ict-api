@@ -1,17 +1,13 @@
 import { Op } from "sequelize";
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
-import { isPremium } from "./activity-registry.js";
+import { serializeActivity } from "./activities/activity-serializer.js";
 
 const now = () => new Date();
 export const publishedWhere = () => ({ status: "published", isVisible: { [Op.ne]: false }, [Op.and]: [{ [Op.or]: [{ availableFrom: null }, { availableFrom: { [Op.lte]: now() } }] }, { [Op.or]: [{ availableUntil: null }, { availableUntil: { [Op.gte]: now() } }] }] });
 export const isPubliclyAvailable = (record) => record.status === "published" && record.isVisible !== false && (!record.availableFrom || new Date(record.availableFrom) <= now()) && (!record.availableUntil || new Date(record.availableUntil) >= now());
 
-export const safeActivity = (activity, entitled = false) => {
-  const locked = isPremium(activity.accessPolicy) && !entitled;
-  const base = { id: activity.id, title: activity.titleEn || activity.title, titleEn: activity.titleEn || activity.title, titleSi: activity.titleSi || null, descriptionEn: activity.descriptionEn || null, descriptionSi: activity.descriptionSi || null, type: activity.type, contentType: activity.type, accessPolicy: isPremium(activity.accessPolicy) ? "premium" : "free", completionMode: activity.completionMode || "none", estimatedMinutes: activity.estimatedMinutes || null, sortOrder: activity.sortOrder, isLocked: locked };
-  return locked ? base : { ...base, content: activity.content, youtubeUrl: activity.youtubeUrl, externalUrl: activity.externalUrl, resourceId: activity.resourceId, config: activity.config, instructions: activity.instructions, maxScore: activity.maxScore, passingScore: activity.passingScore };
-};
+export const safeActivity = (activity, entitled = false) => serializeActivity(activity, entitled ? "authorized_student" : "public");
 
 export const assertParent = async (Model, id, message) => {
   const row = await Model.findByPk(id);
