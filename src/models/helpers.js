@@ -25,6 +25,7 @@ const tableNames = Object.freeze({
   LessonProgress: "lesson_progresses",
   ContentProgress: "content_progresses",
   Resource: "resources",
+  ResourceLink: "resource_links",
   DownloadableResource: "downloadable_resources",
   Product: "products",
   Order: "orders",

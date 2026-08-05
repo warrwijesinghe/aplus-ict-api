@@ -1,41 +1,42 @@
+import path from "path";
 import { ApiError } from "../../core/errors.js";
-
-const signatures = {
-  "image/jpeg": (b) => b.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])),
-  "image/png": (b) => b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
-  "image/webp": (b) =>
-    b.subarray(0, 4).equals(Buffer.from("RIFF")) &&
-    b.subarray(8, 12).equals(Buffer.from("WEBP")),
-  "application/pdf": (b) => b.subarray(0, 5).equals(Buffer.from("%PDF-")),
-};
+import { MIME } from "./category-registry.js";
 
 export const extensionsByMime = Object.freeze({
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "application/pdf": ".pdf",
-  "application/msword": ".doc",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-  "application/vnd.ms-powerpoint": ".ppt",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  [MIME.JPEG]: ".jpg", [MIME.PNG]: ".png", [MIME.WEBP]: ".webp", [MIME.GIF]: ".gif", [MIME.PDF]: ".pdf", [MIME.TEXT]: ".txt", [MIME.CSV]: ".csv", [MIME.DOCX]: ".docx", [MIME.PPTX]: ".pptx", [MIME.XLSX]: ".xlsx",
 });
+const dangerous = /\.(?:exe|msi|bat|cmd|ps1|sh|dll|scr|com|jar|apk)$/i;
+const device = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+const signatures = {
+  [MIME.JPEG]: (b) => b.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])),
+  [MIME.PNG]: (b) => b.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+  [MIME.WEBP]: (b) => b.subarray(0, 4).equals(Buffer.from("RIFF")) && b.subarray(8, 12).equals(Buffer.from("WEBP")),
+  [MIME.GIF]: (b) => ["GIF87a", "GIF89a"].some((signature) => b.subarray(0, 6).equals(Buffer.from(signature))),
+  [MIME.PDF]: (b) => b.subarray(0, 5).equals(Buffer.from("%PDF-")),
+};
+const zipSignature = (b) => b.subarray(0, 4).equals(Buffer.from("504b0304", "hex"));
 
-const imageMimes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const documentMimes = new Set(Object.keys(extensionsByMime).filter((mime) => !mime.startsWith("image/")));
-
-export const validateUpload = (file, { kind, maxBytes, allowOffice = false }) => {
-  if (!file) throw new ApiError(422, "File is required");
-  const allowed = kind === "image" ? imageMimes : allowOffice ? documentMimes : new Set(["application/pdf"]);
-  if (!allowed.has(file.mimetype) || !extensionsByMime[file.mimetype])
-    throw new ApiError(422, "Unsupported file type");
-  if (file.size > maxBytes) throw new ApiError(422, "Uploaded file is too large");
-  const verifier = signatures[file.mimetype];
-  if (verifier && !verifier(file.buffer)) throw new ApiError(422, "File contents do not match its type");
-  return { mimeType: file.mimetype, extension: extensionsByMime[file.mimetype] };
+export const sanitizeOriginalFilename = (value) => {
+  const name = String(value || "").trim();
+  if (!name || name.length > 180 || /[\0\r\n]|[\\/]|\.\./.test(name) || device.test(name) || dangerous.test(name)) throw new ApiError(422, "Unsafe filename");
+  const extension = path.extname(name).toLowerCase();
+  if (!extension || name.slice(0, -extension.length).includes(".")) throw new ApiError(422, "Unsafe filename");
+  return name;
 };
 
-export const validatePaymentSlip = (file, maxBytes) =>
-  validateUpload(file, {
-    kind: file?.mimetype?.startsWith("image/") ? "image" : "document",
-    maxBytes,
-  });
+export const validateUpload = (file, { allowedMimeTypes, maxBytes, kind, allowOffice = false } = {}) => {
+  if (!file || !Buffer.isBuffer(file.buffer)) throw new ApiError(422, "File is required");
+  if (!file.size || !file.buffer.length) throw new ApiError(422, "Empty files are not allowed");
+  const allowed = allowedMimeTypes || (kind === "image" ? [MIME.JPEG, MIME.PNG, MIME.WEBP, MIME.GIF] : allowOffice ? [MIME.PDF, MIME.DOCX, MIME.PPTX, MIME.XLSX] : [MIME.PDF]);
+  if (!allowed.includes(file.mimetype) || !extensionsByMime[file.mimetype]) throw new ApiError(422, "Unsupported file type");
+  if (file.size > maxBytes) throw new ApiError(422, "Uploaded file is too large");
+  if (file.originalname) sanitizeOriginalFilename(file.originalname);
+  const expectedExtension = extensionsByMime[file.mimetype];
+  if (file.originalname && path.extname(file.originalname).toLowerCase() !== expectedExtension && !(file.mimetype === MIME.JPEG && path.extname(file.originalname).toLowerCase() === ".jpeg")) throw new ApiError(422, "Filename extension does not match file type");
+  const verifier = signatures[file.mimetype];
+  if (verifier && !verifier(file.buffer)) throw new ApiError(422, "File contents do not match its type");
+  if ([MIME.DOCX, MIME.PPTX, MIME.XLSX].includes(file.mimetype) && !zipSignature(file.buffer)) throw new ApiError(422, "File contents do not match its type");
+  return { mimeType: file.mimetype, extension: expectedExtension };
+};
+
+export const validatePaymentSlip = (file, maxBytes) => validateUpload(file, { allowedMimeTypes: [MIME.JPEG, MIME.PNG, MIME.WEBP, MIME.GIF, MIME.PDF], maxBytes });

@@ -14,6 +14,9 @@ import { uploadStorage } from "./resources/storage.js";
 import { UPLOAD_CATEGORIES } from "./resources/upload-config.js";
 import { validatePaymentSlip, validateUpload } from "./resources/upload-validation.js";
 import { normalizePublicImage } from "./resources/image-processing.js";
+import { publicCategoryResponse } from "./resources/category-registry.js";
+import { archiveResource, createResource, createResourceReplacement, resourceResponse, streamResource } from "./resources/resource.service.js";
+import { canArchiveResource, canDownloadResource, canManageResource, canReplaceResource, canViewResource } from "./resources/resource-authorization.service.js";
 import { env } from "../config/env.js";
 import {
   downloadableResourceInput,
@@ -48,6 +51,15 @@ const router = Router(),
 
 // Successful responses always use the same envelope for Web and Admin clients.
 const send = (res, data, status = 200) => res.status(status).json({ data });
+const resourceAuth = [authenticate, requirePermission(PERMISSIONS.RESOURCES_READ)];
+const safeResourceWhere = (query) => {
+  const where = {};
+  for (const key of ["category", "visibility", "accessPolicy", "status", "mimeType", "uploadedByUserId"]) if (query[key]) where[key] = query[key];
+  if (query.uploadedBy) where.uploadedByUserId = query.uploadedBy;
+  if (query.search) where[Op.or] = [{ displayName: { [Op.like]: `%${query.search}%` } }, { originalFilename: { [Op.like]: `%${query.search}%` } }];
+  if (query.createdFrom || query.createdUntil) where.createdAt = { ...(query.createdFrom ? { [Op.gte]: new Date(query.createdFrom) } : {}), ...(query.createdUntil ? { [Op.lte]: new Date(query.createdUntil) } : {}) };
+  return where;
+};
 
 // Register authentication before feature routes that use its middleware.
 authRoutes(router);
@@ -430,15 +442,7 @@ router.get(
       throw new ApiError(403, "Paid resource entitlement is not configured");
     }
 
-    const file = download.Resource;
-    const data = await uploadStorage.openPrivateFile(file.storageKey);
-    const cacheControl =
-      download.accessPolicy === "free"
-        ? "public, max-age=3600"
-        : "private, no-store";
-    res.set("Cache-Control", cacheControl);
-    res.attachment(file.originalFilename || download.title + ".pdf");
-    res.type(file.mimeType || "application/octet-stream").send(data);
+    return streamResource(req, res, download.Resource, { download: true });
   }),
 );
 
@@ -767,11 +771,11 @@ router.post(
       );
       try {
         paymentSlipResource = await db.Resource.create({
-          id, ownerUserId: req.user.sub,
-          category: mimeType.startsWith("image/") ? "image" : "pdf",
+          id, ownerUserId: req.user.sub, uploadedByUserId: req.user.sub,
+          category: "payment_slip", storedName: `${id}${extension}`, extension,
           originalFilename: req.file.originalname,
           displayName: "Payment slip",
-          mimeType, sizeBytes: req.file.size, storageKey, visibility: "private",
+          mimeType, sizeBytes: req.file.size, checksum: crypto.createHash("sha256").update(req.file.buffer).digest("hex"), storageKey, visibility: "private", accessPolicy: "owner_only", status: "active",
         });
       } catch (error) {
         await uploadStorage.deletePrivateFile(storageKey).catch(() => undefined);
@@ -803,7 +807,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const payment = await db.Payment.findByPk(req.params.id, { include: [{ model: db.Resource, as: "PaymentSlip" }, db.Order] });
     if (!payment?.PaymentSlip) throw new ApiError(404, "Payment slip not found");
-    if (req.user.role !== "admin" && payment.Order?.userId !== req.user.sub)
+    if (!(req.user.permissions?.includes(PERMISSIONS.PAYMENTS_READ) && ["admin", "super_admin"].includes(req.user.role)) && payment.Order?.userId !== req.user.sub)
       throw new ApiError(403, "Payment slip access required");
     const data = await uploadStorage.openPrivateFile(payment.PaymentSlip.storageKey).catch((error) => {
       if (error.code === "ENOENT") throw new ApiError(404, "Payment slip not found");
@@ -839,65 +843,99 @@ router.get(
   }),
 );
 router.get(
+  "/admin/resource-categories",
+  ...resourceAuth,
+  asyncHandler(async (_req, res) => send(res, publicCategoryResponse())),
+);
+router.get(
+  "/admin/resources/:id",
+  ...resourceAuth,
+  asyncHandler(async (req, res) => {
+    const resource = await db.Resource.findByPk(req.params.id, { include: [{ model: db.ResourceLink, as: "Links" }, { model: db.Resource, as: "Replacement", required: false }] });
+    if (!resource || !canManageResource(req.user, resource)) throw new ApiError(404, "Resource not found");
+    send(res, resourceResponse(resource, { includeLinks: true }));
+  }),
+);
+router.patch(
+  "/admin/resources/:id",
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_UPDATE),
+  asyncHandler(async (req, res) => {
+    const resource = await db.Resource.findByPk(req.params.id); if (!resource || !canManageResource(req.user, resource)) throw new ApiError(404, "Resource not found");
+    const values = {}; for (const key of ["displayName", "description"]) if (key in req.body) values[key] = String(req.body[key] || "").trim().slice(0, key === "description" ? 5000 : 180) || null;
+    if ("visibility" in req.body || "accessPolicy" in req.body) throw new ApiError(422, "Access changes require a compatible replacement or category policy");
+    if (!Object.keys(values).length) throw new ApiError(422, "No editable resource fields supplied"); await resource.update(values); await audit(req, "resource_updated", "resource", resource.id, { fields: Object.keys(values) }); send(res, resourceResponse(resource));
+  }),
+);
+router.post(
+  "/admin/resources/:id/replace",
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_UPDATE),
+  upload.single("file"),
+  asyncHandler(async (req, res) => {
+    const resource = await db.Resource.findByPk(req.params.id); if (!resource || !canReplaceResource(req.user, resource)) throw new ApiError(404, "Resource not found");
+    const replacement = await createResourceReplacement({ resource, file: req.file, user: req.user }); await audit(req, "resource_replaced", "resource", resource.id, { replacementId: replacement.id }); send(res, resourceResponse(replacement), 201);
+  }),
+);
+router.post(
+  "/admin/resources/:id/archive",
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_DELETE),
+  asyncHandler(async (req, res) => {
+    const resource = await db.Resource.findByPk(req.params.id); if (!resource || !canArchiveResource(req.user, resource)) throw new ApiError(404, "Resource not found"); await archiveResource(resource); await audit(req, "resource_archived", "resource", resource.id); send(res, resourceResponse(resource));
+  }),
+);
+router.post(
+  "/admin/resources/:id/links",
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_UPDATE),
+  asyncHandler(async (req, res) => {
+    const resource = await db.Resource.findByPk(req.params.id); if (!resource || !canManageResource(req.user, resource)) throw new ApiError(404, "Resource not found");
+    const entityType = String(req.body.entityType || ""); const purpose = String(req.body.purpose || "attachment"); const entityId = req.body.entityId;
+    if (!["course", "course_track", "lesson", "topic", "activity", "assignment", "submission", "payment", "site", "user"].includes(entityType) || !["thumbnail", "banner", "primary_file", "attachment", "download", "model_answer", "supporting_material", "submission", "payment_evidence"].includes(purpose) || !entityId) throw new ApiError(422, "Invalid resource link");
+    const exists = await db.ResourceLink.findOne({ where: { resourceId: resource.id, entityType, entityId, purpose } }); if (exists) throw new ApiError(409, "Resource link already exists");
+    const link = await db.ResourceLink.create({ resourceId: resource.id, entityType, entityId, purpose, sortOrder: Number(req.body.sortOrder) || 0, createdByUserId: req.user.sub }); await audit(req, "resource_linked", "resource", resource.id, { entityType, entityId, purpose }); send(res, link, 201);
+  }),
+);
+router.delete(
+  "/admin/resources/:id/links/:linkId",
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_UPDATE),
+  asyncHandler(async (req, res) => { const resource = await db.Resource.findByPk(req.params.id); if (!resource || !canManageResource(req.user, resource)) throw new ApiError(404, "Resource not found"); const link = await db.ResourceLink.findOne({ where: { id: req.params.linkId, resourceId: resource.id } }); if (!link) throw new ApiError(404, "Resource link not found"); await link.destroy(); await audit(req, "resource_unlinked", "resource", resource.id, { linkId: link.id }); res.status(204).end(); }),
+);
+router.get(
+  "/public/resources/:id/metadata",
+  asyncHandler(async (req, res) => { const resource = await db.Resource.findByPk(req.params.id); if (!resource || resource.visibility !== "public" || resource.accessPolicy !== "public" || !["active", "ready"].includes(resource.status)) throw new ApiError(404, "Resource not found"); send(res, { id: resource.id, displayName: resource.displayName, mimeType: resource.mimeType, sizeBytes: resource.sizeBytes, category: resource.category }); }),
+);
+router.get(
+  "/resources/:id/view",
+  optionallyAuthenticate,
+  asyncHandler(async (req, res) => { const resource = await db.Resource.findByPk(req.params.id); if (!resource) throw new ApiError(404, "Resource not found"); if (!(await canViewResource(req.user, resource))) { if (!req.user && resource.visibility !== "public") throw new ApiError(401, "Sign in is required"); throw new ApiError(403, "Resource access required"); } return streamResource(req, res, resource); }),
+);
+router.get(
+  "/resources/:id/download",
+  optionallyAuthenticate,
+  asyncHandler(async (req, res) => { const resource = await db.Resource.findByPk(req.params.id); if (!resource) throw new ApiError(404, "Resource not found"); if (!(await canDownloadResource(req.user, resource))) { if (!req.user && resource.visibility !== "public") throw new ApiError(401, "Sign in is required"); throw new ApiError(403, "Resource access required"); } return streamResource(req, res, resource, { download: true }); }),
+);
+router.get(
   "/resources/:id/content",
   authenticate,
   asyncHandler(async (req, res) => {
     const resource = await db.Resource.findByPk(req.params.id);
     if (!resource) throw new ApiError(404, "Resource not found");
-    // Storage is neutral; the linked lesson decides whether a resource can be read.
-    const linked = await db.LessonSection.findOne({
-      where: { resourceId: resource.id },
-    });
-    if (linked) {
-      if (!isPublishedSection(linked))
-        throw new ApiError(404, "Resource not found");
-      const lesson = await db.Lesson.findByPk(linked.lessonId);
-      if (!(await canAccessContent(req.user.sub, lesson, linked)))
-        throw new ApiError(403, "Premium content access required");
-    } else if (
-      resource.ownerUserId !== req.user.sub &&
-      req.user.role !== "admin"
-    ) {
-      // Unlinked private files can only be inspected by their uploader or an administrator.
-      throw new ApiError(403, "Resource access required");
-    }
-    res.set("Cache-Control", "private, no-store");
-    res.set("X-Content-Type-Options", "nosniff");
-    const data = await uploadStorage.openPrivateFile(resource.storageKey).catch((error) => {
-      if (error.code === "ENOENT") throw new ApiError(404, "Resource file not found");
-      throw error;
-    });
-    res.type(resource.mimeType || "application/octet-stream").send(data);
+    if (!(await canViewResource(req.user, resource))) throw new ApiError(403, "Resource access required");
+    return streamResource(req, res, resource);
   }),
 );
 router.post(
   "/admin/resources",
-  ...admin,
+  authenticate,
+  requirePermission(PERMISSIONS.RESOURCES_CREATE),
   upload.single("file"),
   asyncHandler(async (req, res) => {
-    if (!req.file) throw new ApiError(422, "File is required");
-    const kind = req.file.mimetype.startsWith("image/") ? "image" : "document";
-    const { mimeType, extension } = validateUpload(req.file, {
-      kind,
-      maxBytes: kind === "image" ? env.maxImageUploadBytes : env.maxDocumentUploadBytes,
-      allowOffice: kind === "document",
-    });
-    const id = crypto.randomUUID();
-    const storageKey = await uploadStorage.savePrivateFile(
-      UPLOAD_CATEGORIES.PAID_RESOURCE, `${id}${extension}`, req.file.buffer,
-    );
-    try {
-      const resource = await db.Resource.create({
-        id, ownerUserId: req.user.sub,
-        category: kind === "image" ? "image" : mimeType === "application/pdf" ? "pdf" : "document",
-        originalFilename: req.file.originalname, displayName: req.body.displayName || req.file.originalname,
-        mimeType, sizeBytes: req.file.size, storageKey, visibility: "private",
-      });
-      send(res, resource, 201);
-    } catch (error) {
-      await uploadStorage.deletePrivateFile(storageKey).catch(() => undefined);
-      throw error;
-    }
+    const { resource, duplicateId } = await createResource({ file: req.file, body: req.body, user: req.user });
+    await audit(req, "resource_uploaded", "resource", resource.id, { category: resource.category, mimeType: resource.mimeType, sizeBytes: resource.sizeBytes });
+    send(res, { ...resourceResponse(resource), duplicateId }, 201);
   }),
 );
 // Intentionally public content is the only class that receives a stable public URL.
@@ -935,8 +973,12 @@ router.post(
 );
 router.get(
   "/admin/resources",
-  ...admin,
-  asyncHandler(async (req, res) => send(res, await db.Resource.findAll())),
+  ...resourceAuth,
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100); const page = Math.max(Number(req.query.page) || 1, 1);
+    const result = await db.Resource.findAndCountAll({ where: safeResourceWhere(req.query), include: [{ model: db.ResourceLink, as: "Links", attributes: ["id"] }], limit, offset: (page - 1) * limit, order: [["createdAt", "DESC"]] });
+    send(res, { items: result.rows.map((resource) => ({ ...resourceResponse(resource), linkedItemCount: resource.Links?.length || 0 })), pagination: { page, limit, total: result.count } });
+  }),
 );
 
 // This endpoint creates both the stored file record and the public catalog entry

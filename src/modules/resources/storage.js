@@ -12,9 +12,11 @@ export class UploadStorageService {
     if (!isInside(root, target)) throw new Error("Unsafe upload storage key");
     return target;
   }
-  async save(visibility, category, storedName, buffer) {
-    assertUploadCategory(visibility, category);
-    const storageKey = path.posix.join(category, storedName);
+  async save(visibility, categoryOrKey, storedNameOrBuffer, maybeBuffer) {
+    const directKey = Buffer.isBuffer(storedNameOrBuffer);
+    const storageKey = directKey ? categoryOrKey : path.posix.join(categoryOrKey, storedNameOrBuffer);
+    const buffer = directKey ? storedNameOrBuffer : maybeBuffer;
+    if (!directKey) assertUploadCategory(visibility, categoryOrKey);
     const target = this.resolve(visibility, storageKey);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, buffer, { flag: "wx" });

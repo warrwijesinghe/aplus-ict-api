@@ -13,7 +13,9 @@
     "lint": "eslint .",
     "db:migrate": "sequelize-cli db:migrate --config config/database.cjs --migrations-path migrations",
     "db:seed": "sequelize-cli db:seed:all --config config/database.cjs --seeders-path seeders",
-    "db:validate": "sequelize-cli db:migrate:status --config config/database.cjs --migrations-path migrations"
+    "db:validate": "sequelize-cli db:migrate:status --config config/database.cjs --migrations-path migrations",
+    "resources:audit": "node scripts/resources-audit.js",
+    "resources:cleanup": "node scripts/resources-cleanup.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

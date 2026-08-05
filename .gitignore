@@ -6,6 +6,10 @@ coverage/
 dist/
 build/
 logs/
+storage/uploads/
+storage/tmp/
+!storage/uploads/.gitkeep
+!storage/tmp/.gitkeep
 *.log
 .DS_Store
 Thumbs.db

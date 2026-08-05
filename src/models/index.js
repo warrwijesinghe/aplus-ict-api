@@ -27,6 +27,7 @@ import { defineRolePermission } from "./role-permission.model.js";
 import { defineDownloadableResource } from "./downloadable-resource.model.js";
 import { defineEducatorAssignment } from "./educator-assignment.model.js";
 import { defineAuditLog } from "./audit-log.model.js";
+import { defineResourceLink } from "./resource-link.model.js";
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
@@ -57,6 +58,7 @@ export const RolePermission = defineRolePermission(sequelize);
 export const DownloadableResource = defineDownloadableResource(sequelize);
 export const EducatorAssignment = defineEducatorAssignment(sequelize);
 export const AuditLog = defineAuditLog(sequelize);
+export const ResourceLink = defineResourceLink(sequelize);
 
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
@@ -116,6 +118,9 @@ LessonSection.hasMany(ContentProgress, { foreignKey: "lessonSectionId" });
 // A public download entry points to the uploaded file it presents in the catalogue.
 Resource.hasOne(DownloadableResource, { foreignKey: "resourceId" });
 DownloadableResource.belongsTo(Resource, { foreignKey: "resourceId" });
+Resource.hasMany(ResourceLink, { foreignKey: "resourceId", as: "Links" });
+ResourceLink.belongsTo(Resource, { foreignKey: "resourceId" });
+Resource.belongsTo(Resource, { foreignKey: "replacedByResourceId", as: "Replacement" });
 
 export const db = {
   sequelize,
@@ -147,4 +152,5 @@ export const db = {
   DownloadableResource,
   EducatorAssignment,
   AuditLog,
+  ResourceLink,
 };

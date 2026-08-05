@@ -36,7 +36,7 @@ const publicItem = (item) => ({
 const readyFile = {
   model: db.Resource,
   required: true,
-  where: { status: "ready" },
+  where: { status: { [Op.in]: ["active", "ready"] } },
 };
 
 export const findPublishedDownloads = async (query) => {

@@ -33,4 +33,9 @@ export const env = Object.freeze({
     Number(process.env.MAX_DOCUMENT_UPLOAD_MB || 25) * 1024 * 1024,
   maxPaymentSlipUploadBytes:
     Number(process.env.MAX_PAYMENT_SLIP_UPLOAD_MB || 10) * 1024 * 1024,
+  resourceMaxUploadBytes: Number(process.env.RESOURCE_MAX_UPLOAD_MB || 25) * 1024 * 1024,
+  resourceTempDir: process.env.RESOURCE_TEMP_DIR || "storage/tmp",
+  resourceArchiveRetentionDays: Number(process.env.RESOURCE_ARCHIVE_RETENTION_DAYS || 90),
+  paymentSlipRetentionDays: Number(process.env.PAYMENT_SLIP_RETENTION_DAYS || 2555),
+  assignmentSubmissionRetentionDays: Number(process.env.ASSIGNMENT_SUBMISSION_RETENTION_DAYS || 730),
 });

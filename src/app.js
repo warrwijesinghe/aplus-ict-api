@@ -8,7 +8,8 @@ import routes from "./modules/routes.js";
 import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./core/middleware.js";
 import { sequelize } from "./config/database.js";
-import path from "path";
+import { db } from "./models/index.js";
+import { streamResource } from "./modules/resources/resource.service.js";
 import crypto from "crypto";
 export const app = express();
 // Keep local and development diagnostics useful without logging credentials,
@@ -41,8 +42,23 @@ app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
 // Only public content is ever exposed as static files. Private uploads are streamed
 // by authenticated resource/payment endpoints instead.
+// Public files are still checked against their Resource record. This prevents a
+// formerly public file from remaining reachable after archive/delete.
 if (env.servePublicUploads)
-  app.use(env.publicUploadUrl, express.static(path.resolve(env.publicUploadDir)));
+  app.use(env.publicUploadUrl, async (req, res, next) => {
+    try {
+      const storageKey = decodeURIComponent(req.path).replace(/^\/+/, "");
+      if (!storageKey || storageKey.includes("..") || storageKey.includes("\\")) return res.sendStatus(404);
+      const resource = await db.Resource.findOne({ attributes: ["id", "storageKey", "visibility", "accessPolicy", "status", "mimeType", "sizeBytes", "displayName", "originalFilename", "extension"], where: { storageKey, visibility: "public", accessPolicy: "public", status: ["active", "ready"] } });
+      if (!resource) return res.sendStatus(404);
+      return streamResource(req, res, resource);
+    } catch (error) {
+      // A deployment must run the Resource migration before public uploads are
+      // enabled; fail closed during that transition rather than serving files.
+      if (error?.original?.code === "ER_BAD_FIELD_ERROR") return res.sendStatus(404);
+      return next(error);
+    }
+  });
 app.use(rateLimit({ windowMs: 15 * 60e3, limit: 500, standardHeaders: true }));
 app.get("/health", (req, res) =>
   res.json({ status: "ok", service: "aplus-ict-api" }),
