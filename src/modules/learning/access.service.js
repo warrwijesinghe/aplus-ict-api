@@ -1,8 +1,9 @@
 import { Op } from "sequelize";
 import { db } from "../../models/index.js";
+import { isPremium } from "../content/activity-registry.js";
 
 /**
- * A paid entitlement unlocks the premium part of one lesson. Free sections
+ * An entitlement unlocks the premium part of one lesson. Free sections
  * never require a purchase, even when they sit inside a premium lesson.
  */
 export const canAccessLesson = async (userId, lesson) => {
@@ -23,7 +24,7 @@ export const canAccessContent = async (
   section,
   lessonUnlocked,
 ) => {
-  if (section.accessPolicy !== "paid") return true;
+  if (!isPremium(section.accessPolicy)) return true;
 
   // The course progress endpoint already knows the lesson entitlement. Passing
   // it in avoids repeating the same database query for every content item.

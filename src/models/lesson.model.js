@@ -4,12 +4,17 @@ export const defineLesson = (sequelize) =>
   defineModel(sequelize, "Lesson", {
     trackId: DataTypes.UUID,
     title: DataTypes.STRING,
+    titleEn: DataTypes.STRING,
+    titleSi: DataTypes.STRING,
     slug: DataTypes.STRING,
     lessonNumber: DataTypes.INTEGER,
     // Recommended syllabus periods are displayed on the public lesson cards.
     // Keeping the value on the lesson makes it editable from the admin catalogue.
     estimatedPeriods: DataTypes.INTEGER,
     summary: DataTypes.TEXT,
+    descriptionEn: DataTypes.TEXT,
+    descriptionSi: DataTypes.TEXT,
+    estimatedMinutes: DataTypes.INTEGER,
     accessPolicy: {
       type: DataTypes.ENUM("free", "paid"),
       defaultValue: "free",
@@ -19,4 +24,8 @@ export const defineLesson = (sequelize) =>
       defaultValue: "draft",
     },
     sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
+    isVisible: { type: DataTypes.BOOLEAN, defaultValue: true },
+    availableFrom: DataTypes.DATE,
+    availableUntil: DataTypes.DATE,
+    publishedAt: DataTypes.DATE,
   });

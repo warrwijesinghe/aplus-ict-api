@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import crypto from "crypto";
+import { Op } from "sequelize";
 import { db } from "../models/index.js";
 import { ApiError, asyncHandler } from "../core/errors.js";
 import {
@@ -33,6 +34,9 @@ import siteRoutes from "./site/routes.js";
 import directPayRoutes from "./integrations/directpay/routes.js";
 import { PERMISSIONS } from "../security/permissions.js";
 import { audit, requirePermission, requirePermissionForTrack } from "../security/authorization.js";
+import { createContentAdminRouter } from "./content/admin-content.routes.js";
+import { isPremium } from "./content/activity-registry.js";
+import { publishedWhere } from "./content/content.service.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -87,6 +91,11 @@ router.get("/educator/tracks", authenticate, requirePermission(PERMISSIONS.TRACK
 router.get("/educator/tracks/:trackId", ...requirePermissionForTrack(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId, { include: [db.Course, db.Medium] }); if (!track) throw new ApiError(404, "Course track not found"); send(res, track); }));
 router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(PERMISSIONS.LESSONS_UPDATE, "canManageContent"), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId); if (!track) throw new ApiError(404, "Course track not found"); const { title, status } = req.body; await track.update(Object.fromEntries([["title", title], ["status", status]].filter(([, value]) => value !== undefined))); send(res, track); }));
 
+// Task 03 management endpoints enforce both granular permissions and educator
+// course-track assignments. Legacy /admin/sections remains below for clients
+// that have not yet moved to the Learning Activity label.
+router.use(createContentAdminRouter());
+
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
 router.get("/student/enrollments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
@@ -94,11 +103,13 @@ router.get("/courses/:courseId/enrollment", authenticate, asyncHandler(async (re
 router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId), 201)));
 
 const sectionAccessPolicy = (section) =>
-  section.accessPolicy === "paid" ? "paid" : "free";
+  isPremium(section.accessPolicy) ? "premium" : "free";
 
-const isPublishedSection = (section) => section.isVisible !== false;
-
-const lessonContent = (lesson) => lesson.LessonSections || [];
+const lessonContent = (lesson) => (lesson.LessonSections || []).filter(
+  // Legacy sections have no topic and stay visible; a grouped activity is only
+  // public when its Topic was also included by the published visibility rules.
+  (section) => !section.topicId || section.Topic,
+);
 
 const contentCounts = (lesson) => {
   const sections = lessonContent(lesson);
@@ -107,7 +118,7 @@ const contentCounts = (lesson) => {
       (section) => sectionAccessPolicy(section) === "free",
     ).length,
     paidContentCount: sections.filter(
-      (section) => sectionAccessPolicy(section) === "paid",
+      (section) => sectionAccessPolicy(section) === "premium",
     ).length,
   };
 };
@@ -134,7 +145,7 @@ const publicTrack = (track) => {
     (section) => sectionAccessPolicy(section) === "free",
   ).length;
   const paidContentCount = content.filter(
-    (section) => sectionAccessPolicy(section) === "paid",
+    (section) => sectionAccessPolicy(section) === "premium",
   ).length;
 
   return {
@@ -183,7 +194,7 @@ const publicCourseInclude = () => [
 ];
 
 const publicTrackWhere = (query) => {
-  const where = { status: "published", isPublic: true };
+  const where = { status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } };
   const academicLevel = query.academicLevel || query.level;
   const allowedAreas = new Set(["AL", "OL", "SCHOOL"]);
   const allowedMedia = new Set(["sinhala", "english"]);
@@ -193,6 +204,8 @@ const publicTrackWhere = (query) => {
     throw new ApiError(422, "Invalid grade filter");
   if (query.medium && !allowedMedia.has(query.medium))
     throw new ApiError(422, "Invalid medium filter");
+  if (query.availability && !["active", "coming_soon", "paused", "archived"].includes(query.availability)) throw new ApiError(422, "Invalid availability filter");
+  if (query.featured && !["true", "false"].includes(query.featured)) throw new ApiError(422, "Invalid featured filter");
   if (query.availability) where.availabilityStatus = query.availability;
   if (query.medium) where["$Medium.code$"] = query.medium;
   if (academicLevel) where["$Course.courseGroup$"] = academicLevel;
@@ -216,6 +229,7 @@ const publicLesson = (lesson) => {
     hasPaidContent: paidContentCount > 0,
     freeContentCount,
     paidContentCount,
+    publishedTopicCount: lesson.Topics?.length || 0,
     isLocked: freeContentCount === 0 && paidContentCount > 0,
     purchaseAvailable: paidContentCount > 0,
     unlockProduct: publicProduct(lesson),
@@ -225,31 +239,37 @@ const publicLesson = (lesson) => {
       activityType: section.type,
       accessPolicy: sectionAccessPolicy(section),
       displayOrder: section.sortOrder,
-      isLocked: sectionAccessPolicy(section) === "paid",
+      isLocked: sectionAccessPolicy(section) === "premium",
     })),
   };
 };
 
 const publishedLessonInclude = () => ({
   model: db.Lesson,
-  where: { status: "published" },
+  where: publishedWhere(),
   required: false,
   include: [
     {
       model: db.LessonSection,
-      where: { isVisible: true, status: "published" },
+      where: publishedWhere(),
       required: false,
+      include: [{ model: db.Topic, where: publishedWhere(), required: false }],
     },
     {
       model: db.Product,
       where: { status: "active" },
       required: false,
     },
+    {
+      model: db.Topic,
+      where: publishedWhere(),
+      required: false,
+    },
   ],
 });
 
 const safeLearningContent = (section, isUnlocked, progress) => {
-  const isLocked = sectionAccessPolicy(section) === "paid" && !isUnlocked;
+  const isLocked = sectionAccessPolicy(section) === "premium" && !isUnlocked;
   return {
     id: section.id,
     title: section.titleEn || section.title,
@@ -259,26 +279,22 @@ const safeLearningContent = (section, isUnlocked, progress) => {
     descriptionSi: section.descriptionSi || null,
     contentType: section.type,
     accessLevel: sectionAccessPolicy(section),
+    accessPolicy: sectionAccessPolicy(section),
+    completionMode: section.completionMode || "none",
+    estimatedMinutes: section.estimatedMinutes || null,
     sortOrder: section.sortOrder,
     isLocked,
     progress: progress || { status: "not_started" },
     // Content bodies and URLs are only returned once the server grants access.
-    ...(isLocked
-      ? {}
-      : {
-          content: section.content,
-          youtubeUrl: section.youtubeUrl,
-          resourceId: section.resourceId,
-          config: section.config,
-        }),
+    ...(isLocked ? {} : { content: section.content, youtubeUrl: section.youtubeUrl, externalUrl: section.externalUrl, resourceId: section.resourceId, config: section.config, instructions: section.instructions }),
   };
 };
 
 const lessonTopics = async (lesson, userId) => {
   const [topics, contentProgress, unlocked] = await Promise.all([
     db.Topic.findAll({
-      where: { lessonId: lesson.id, status: "published" },
-      include: [{ model: db.LessonSection, where: { isVisible: true, status: "published" }, required: false }],
+      where: { lessonId: lesson.id, ...publishedWhere() },
+      include: [{ model: db.LessonSection, where: publishedWhere(), required: false }],
       order: [["sortOrder", "ASC"], [db.LessonSection, "sortOrder", "ASC"]],
     }),
     userId
@@ -333,7 +349,7 @@ router.get(
   "/public/courses/:slug",
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
-      where: { slug: req.params.slug, status: "published" },
+      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } },
       include: publicCourseInclude(),
     });
     if (!track) throw new ApiError(404, "Course track not found");
@@ -344,14 +360,14 @@ router.get(
   "/public/courses/:slug/curriculum",
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
-      where: { slug: req.params.slug, status: "published" },
+      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } },
       include: publicCourseInclude(),
       order: [[db.Lesson, "sortOrder", "ASC"]],
     });
     if (!track) throw new ApiError(404, "Course track not found");
     send(res, {
       ...publicTrack(track),
-      lessons: (track.Lessons || []).map(publicLesson),
+      lessons: track.availabilityStatus === "coming_soon" ? [] : (track.Lessons || []).map(publicLesson),
     });
   }),
 );
@@ -360,14 +376,14 @@ router.get(
   optionallyAuthenticate,
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
-      where: { slug: req.params.courseSlug, status: "published", isPublic: true },
+      where: { slug: req.params.courseSlug, status: "published", isPublic: true, availabilityStatus: "active" },
       include: publicCourseInclude(),
     });
     if (!track) throw new ApiError(404, "Course not found");
     const lesson = await db.Lesson.findOne({
-      where: { trackId: track.id, slug: req.params.lessonSlug, status: "published" },
+      where: { trackId: track.id, slug: req.params.lessonSlug, ...publishedWhere() },
       include: [
-        { model: db.LessonSection, where: { isVisible: true, status: "published" }, required: false },
+        { model: db.LessonSection, where: publishedWhere(), required: false, include: [{ model: db.Topic, where: publishedWhere(), required: false }] },
         { model: db.Product, where: { status: "active" }, required: false },
       ],
     });
