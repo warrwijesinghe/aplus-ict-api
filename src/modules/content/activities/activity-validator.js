@@ -94,6 +94,7 @@ export const validateActivityForPublishing = (activity) => {
 export const validateActivityResource = (activity, resource) => {
   if (!resource) return;
   const type = getActivityType(activity.type);
-  if (type.supportedResourceTypes.length && !type.supportedResourceTypes.includes(resource.category)) throw new ApiError(422, `${type.name} requires a supported ${type.supportedResourceTypes.join(" or ")} Resource`);
+  const compatible = !type.supportedResourceTypes.length || (activity.type === "image" ? resource.mimeType?.startsWith("image/") : activity.type === "pdf" ? resource.mimeType === "application/pdf" : ["file", "download"].includes(activity.type) ? !resource.mimeType?.startsWith("application/x-msdownload") && resource.category !== "payment_slip" && resource.category !== "assignment_submission" : type.supportedResourceTypes.includes(resource.category));
+  if (!compatible) throw new ApiError(422, `${type.name} requires a compatible Resource`);
   if (["file", "download"].includes(activity.type) && /(?:x-msdownload|x-sh|x-bat|x-msi)/i.test(resource.mimeType || "")) throw new ApiError(422, "Unsafe executable Resources are not allowed");
 };

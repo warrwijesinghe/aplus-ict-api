@@ -5,7 +5,7 @@ import { ApiError, asyncHandler } from "../../core/errors.js";
 import { authenticate } from "../auth/auth.js";
 import { audit, hasCourseAssignment, privilegedRoles, requirePermission } from "../../security/authorization.js";
 import { PERMISSIONS } from "../../security/permissions.js";
-import { assertParent, reorder } from "./content.service.js";
+import { assertParent, duplicateLessonDraft, duplicateTopicDraft, reorder } from "./content.service.js";
 import { pick, validateContentPayload } from "./content-validation.js";
 import { activityTypeMetadata } from "./activities/activity-types.js";
 import { archiveActivity, createActivity, duplicateActivity, publishActivity, unpublishActivity, updateActivity, validateForPublishing } from "./activities/activity.service.js";
@@ -59,6 +59,15 @@ const fields = {
 export const createContentAdminRouter = () => {
   const router = Router();
   router.get("/admin/activity-types", authenticate, requirePermission(PERMISSIONS.ACTIVITIES_READ), (_req, res) => send(res, activityTypeMetadata()));
+  router.get("/admin/content-builder/context", authenticate, requirePermission(PERMISSIONS.LESSONS_READ), asyncHandler(async (req, res) => {
+    const trackIds = await manageableTrackIds(req);
+    const tracks = await db.CourseTrack.findAll({ ...(trackIds === null ? {} : { where: { id: { [Op.in]: trackIds } } }), include: [db.Course, db.Medium], order: [["sortOrder", "ASC"]] });
+    const courseIds = [...new Set(tracks.map((track) => track.courseId))];
+    const courses = await db.Course.findAll({ where: trackIds === null ? {} : { id: { [Op.in]: courseIds } }, order: [["sortOrder", "ASC"]] });
+    const levelIds = [...new Set(courses.map((course) => course.academicLevelId).filter(Boolean))];
+    const academicLevels = await db.AcademicLevel.findAll({ where: trackIds === null ? {} : { id: { [Op.in]: levelIds } }, order: [["sortOrder", "ASC"]] });
+    send(res, { academicLevels, courses, media: tracks.map((track) => ({ ...track.toJSON(), mediumLabel: track.Medium?.name || track.title })) });
+  }));
   const simple = (path, Model, kind, permission, event) => {
     router.get(`/admin/${path}`, authenticate, requirePermission(permission.read), asyncHandler(async (_req, res) => send(res, await Model.findAll({ order: [["sortOrder", "ASC"]] }))));
     router.post(`/admin/${path}`, authenticate, requirePermission(permission.create), asyncHandler(async (req, res) => { validateContentPayload(req.body, kind); const row = await Model.create(pick(req.body, fields[kind])); await audit(req, `${event}_created`, kind, row.id, { status: row.status }); send(res, row, 201); }));
@@ -81,6 +90,15 @@ export const createContentAdminRouter = () => {
   };
   scoped("lessons", db.Lesson, "lesson", { read: PERMISSIONS.LESSONS_READ, create: PERMISSIONS.LESSONS_CREATE, update: PERMISSIONS.LESSONS_UPDATE }, "lesson", async (req) => req.body.trackId || trackForLesson(req.body.id));
   scoped("topics", db.Topic, "topic", { read: PERMISSIONS.TOPICS_READ, create: PERMISSIONS.TOPICS_CREATE, update: PERMISSIONS.TOPICS_UPDATE }, "topic", async (req) => trackForLesson(req.body.lessonId || (await assertParent(db.Topic, req.body.id, "Topic not found")).lessonId), async (values) => assertParent(db.Lesson, values.lessonId, "Lesson does not exist"));
+  const lifecycle = (path, Model, permission, resolveTrack, kind) => {
+    router.post(`/admin/${path}/:id/publish`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); if (!String(row.title || row.titleEn || "").trim()) throw new ApiError(422, "A title is required before publishing"); await row.update({ status: "published", isVisible: true, publishedAt: new Date() }); await audit(req, `${kind}_published`, kind, row.id); send(res, row); }));
+    router.post(`/admin/${path}/:id/unpublish`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); await row.update({ status: "draft", publishedAt: null }); await audit(req, `${kind}_unpublished`, kind, row.id); send(res, row); }));
+    router.post(`/admin/${path}/:id/archive`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); await row.update({ status: "archived", isVisible: false }); await audit(req, `${kind}_archived`, kind, row.id); send(res, row); }));
+  };
+  lifecycle("lessons", db.Lesson, PERMISSIONS.LESSONS_PUBLISH, trackForLesson, "lesson");
+  lifecycle("topics", db.Topic, PERMISSIONS.TOPICS_UPDATE, trackForTopic, "topic");
+  router.post("/admin/lessons/:id/duplicate", ...requireTrack(PERMISSIONS.LESSONS_CREATE, "canManageContent", (req) => trackForLesson(req.params.id)), asyncHandler(async (req, res) => { const source = await assertParent(db.Lesson, req.params.id, "Lesson not found"); const destinationTrackId = req.body.destinationTrackId || source.trackId; if (await assertParent(db.CourseTrack, destinationTrackId, "Medium not found") && !privileged(req) && !(await hasCourseAssignment(req.user.sub, { trackId: destinationTrackId, capability: "canManageContent" }))) throw new ApiError(403, "You are not assigned to this Medium"); const copy = await duplicateLessonDraft(source.id, destinationTrackId); await audit(req, "lesson_duplicated", "lesson", copy.id, { sourceLessonId: source.id }); send(res, copy, 201); }));
+  router.post("/admin/topics/:id/duplicate", ...requireTrack(PERMISSIONS.TOPICS_CREATE, "canManageContent", (req) => trackForTopic(req.params.id)), asyncHandler(async (req, res) => { const copy = await duplicateTopicDraft(req.params.id, req.body.includeActivities !== false); await audit(req, "topic_duplicated", "topic", copy.id, { sourceTopicId: req.params.id, includeActivities: req.body.includeActivities !== false }); send(res, copy, 201); }));
   const activityRoutes = (path) => {
     router.get(`/admin/${path}`, authenticate, requirePermission(PERMISSIONS.ACTIVITIES_READ), asyncHandler(async (req, res) => send(res, (await scopedList(req, db.LessonSection, "activity")).map((row) => serializeActivity(row, "admin")))));
     router.post(`/admin/${path}`, ...requireTrack(PERMISSIONS.ACTIVITIES_CREATE, "canManageContent", (req) => trackForLesson(req.body.lessonId)), asyncHandler(async (req, res) => {

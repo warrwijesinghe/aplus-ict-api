@@ -4,6 +4,7 @@ import { app } from "../src/app.js";
 import { ACTIVITY_TYPES, ACCESS_POLICIES, COMPLETION_MODES } from "../src/modules/content/activity-registry.js";
 import { safeActivity } from "../src/modules/content/content.service.js";
 import { validateContentPayload, validateAvailability, validateSlug } from "../src/modules/content/content-validation.js";
+import { validateActivityResource } from "../src/modules/content/activities/activity-validator.js";
 
 const activity = {
   id: "activity-1", title: "Premium video", titleEn: "Premium video", titleSi: null,
@@ -42,5 +43,12 @@ describe("LMS content architecture", () => {
   it("does not expose content-management routes to anonymous users", async () => {
     const response = await request(app).get("/api/v1/admin/activities");
     expect(response.status).toBe(401);
+  });
+
+  it("keeps the authorized builder context private and accepts Task 05 resource categories", async () => {
+    expect((await request(app).get("/api/v1/admin/content-builder/context")).status).toBe(401);
+    expect(() => validateActivityResource({ type: "image" }, { category: "lesson_image", mimeType: "image/webp" })).not.toThrow();
+    expect(() => validateActivityResource({ type: "pdf" }, { category: "lesson_pdf", mimeType: "application/pdf" })).not.toThrow();
+    expect(() => validateActivityResource({ type: "image" }, { category: "lesson_pdf", mimeType: "application/pdf" })).toThrow("compatible Resource");
   });
 });

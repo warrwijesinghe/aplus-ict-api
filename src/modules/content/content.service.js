@@ -44,3 +44,12 @@ export const duplicateLessonDraft = async (lessonId, targetTrackId = null) => db
   }
   return lesson;
 });
+
+export const duplicateTopicDraft = async (topicId, includeActivities = true) => db.sequelize.transaction(async (transaction) => {
+  const source = await db.Topic.findByPk(topicId, { include: [db.LessonSection], transaction });
+  if (!source) throw new ApiError(404, "Topic not found");
+  const nextSortOrder = (await db.Topic.max("sortOrder", { where: { lessonId: source.lessonId }, transaction }) || 0) + 1;
+  const topic = await db.Topic.create({ ...source.get({ plain: true }), id: undefined, title: `${source.title || source.titleEn || "Topic"} (copy)`, slug: source.slug ? `${source.slug}-copy-${Date.now()}` : null, status: "draft", isVisible: false, sortOrder: nextSortOrder }, { transaction });
+  if (includeActivities) for (const activity of source.LessonSections || []) await db.LessonSection.create({ ...activity.get({ plain: true }), id: undefined, lessonId: topic.lessonId, topicId: topic.id, title: `${activity.title || activity.titleEn || "Activity"} (copy)`, status: "draft", isVisible: false, publishedAt: null }, { transaction });
+  return topic;
+});
