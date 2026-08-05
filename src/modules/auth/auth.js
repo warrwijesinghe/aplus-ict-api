@@ -277,12 +277,15 @@ export const bootstrapAdmin = async ({
   password,
   name = "Administrator",
 }) => {
-  if (await db.User.findOne({ where: { email } }))
-    throw new Error("Admin already exists");
-  return db.User.create({
-    email,
-    name,
-    role: "super_admin",
-    passwordHash: await bcrypt.hash(password, 12),
+  return db.sequelize.transaction(async (transaction) => {
+    if (await db.User.findOne({ where: { email }, transaction }))
+      throw new Error("Admin already exists");
+    const user = await db.User.create({
+      email, name, role: "super_admin", passwordHash: await bcrypt.hash(password, 12),
+    }, { transaction });
+    const role = await db.Role.findOne({ where: { code: "super_admin", isActive: true }, transaction });
+    if (!role) throw new Error("The super administrator role has not been seeded");
+    await db.UserRole.create({ userId: user.id, roleId: role.id }, { transaction });
+    return user;
   });
 };
