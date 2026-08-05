@@ -66,7 +66,26 @@ export const createContentAdminRouter = () => {
     const courses = await db.Course.findAll({ where: trackIds === null ? {} : { id: { [Op.in]: courseIds } }, order: [["sortOrder", "ASC"]] });
     const levelIds = [...new Set(courses.map((course) => course.academicLevelId).filter(Boolean))];
     const academicLevels = await db.AcademicLevel.findAll({ where: trackIds === null ? {} : { id: { [Op.in]: levelIds } }, order: [["sortOrder", "ASC"]] });
-    send(res, { academicLevels, courses, media: tracks.map((track) => ({ ...track.toJSON(), mediumLabel: track.Medium?.name || track.title })) });
+    send(res, { academicLevels, courses, availableMedia: await db.Medium.findAll({ order: [["sortOrder", "ASC"]] }), media: tracks.map((track) => ({ ...track.toJSON(), mediumLabel: track.Medium?.name || track.title })) });
+  }));
+  router.post("/admin/content-builder/courses", authenticate, requirePermission(PERMISSIONS.COURSES_CREATE), asyncHandler(async (req, res) => {
+    if (!privileged(req)) throw new ApiError(403, "Only administrators can create Courses");
+    validateContentPayload(req.body, "course");
+    const title = String(req.body.title || req.body.titleEn || "").trim(); const slug = String(req.body.slug || "").trim();
+    if (!title || !slug || !req.body.academicLevelId) throw new ApiError(422, "Course title, slug, and Academic Level are required");
+    await assertParent(db.AcademicLevel, req.body.academicLevelId, "Academic Level does not exist");
+    if (await db.Course.findOne({ where: { slug } })) throw new ApiError(409, "A Course with this slug already exists");
+    const course = await db.Course.create({ ...pick(req.body, fields.course), title, slug, status: "draft" });
+    await audit(req, "course_created", "course", course.id, { academicLevelId: course.academicLevelId }); send(res, course, 201);
+  }));
+  router.post("/admin/content-builder/media", ...requireCourse(PERMISSIONS.TRACKS_CREATE, (req) => req.body.courseId), asyncHandler(async (req, res) => {
+    validateContentPayload(req.body, "track");
+    if (!req.body.courseId || !req.body.mediumId || !String(req.body.title || "").trim() || !String(req.body.slug || "").trim()) throw new ApiError(422, "Course, Medium, title, and slug are required");
+    await assertParent(db.Course, req.body.courseId, "Course does not exist"); await assertParent(db.Medium, req.body.mediumId, "Medium does not exist");
+    if (await db.CourseTrack.findOne({ where: { courseId: req.body.courseId, mediumId: req.body.mediumId } })) throw new ApiError(409, "This Medium already exists for the Course");
+    if (await db.CourseTrack.findOne({ where: { slug: req.body.slug } })) throw new ApiError(409, "A Medium with this slug already exists");
+    const track = await db.CourseTrack.create({ ...pick(req.body, fields.track), title: String(req.body.title).trim(), slug: String(req.body.slug).trim(), status: "draft" });
+    await audit(req, "track_created", "track", track.id, { courseId: track.courseId, mediumId: track.mediumId }); send(res, track, 201);
   }));
   const simple = (path, Model, kind, permission, event) => {
     router.get(`/admin/${path}`, authenticate, requirePermission(permission.read), asyncHandler(async (_req, res) => send(res, await Model.findAll({ order: [["sortOrder", "ASC"]] }))));

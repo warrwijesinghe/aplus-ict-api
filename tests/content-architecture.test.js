@@ -47,6 +47,8 @@ describe("LMS content architecture", () => {
 
   it("keeps the authorized builder context private and accepts Task 05 resource categories", async () => {
     expect((await request(app).get("/api/v1/admin/content-builder/context")).status).toBe(401);
+    expect((await request(app).post("/api/v1/admin/content-builder/courses").send({})).status).toBe(401);
+    expect((await request(app).post("/api/v1/admin/content-builder/media").send({})).status).toBe(401);
     expect(() => validateActivityResource({ type: "image" }, { category: "lesson_image", mimeType: "image/webp" })).not.toThrow();
     expect(() => validateActivityResource({ type: "pdf" }, { category: "lesson_pdf", mimeType: "application/pdf" })).not.toThrow();
     expect(() => validateActivityResource({ type: "image" }, { category: "lesson_pdf", mimeType: "application/pdf" })).toThrow("compatible Resource");
