@@ -41,6 +41,7 @@ import { createContentAdminRouter } from "./content/admin-content.routes.js";
 import { isPremium } from "./content/activity-registry.js";
 import { publishedWhere } from "./content/content.service.js";
 import studentPlayerRoutes from "./learning/student-player.routes.js";
+import { createQuestionBankRouter } from "./question-bank/question-bank.routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -108,6 +109,7 @@ router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(P
 // course-track assignments. Legacy /admin/sections remains below for clients
 // that have not yet moved to the Learning Activity label.
 router.use(createContentAdminRouter());
+router.use(createQuestionBankRouter());
 router.use(studentPlayerRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
