@@ -7,7 +7,7 @@ export const defineEnrolment = (sequelize) =>
     courseId: DataTypes.UUID,
     courseTrackId: DataTypes.UUID,
     status: {
-      type: DataTypes.ENUM("active", "completed", "revoked"),
+      type: DataTypes.ENUM("active", "inactive", "cancelled", "completed", "revoked"),
       defaultValue: "active",
     },
     source: {
@@ -19,4 +19,6 @@ export const defineEnrolment = (sequelize) =>
     // Kept on the enrolled course record so continuation can be resolved
     // without a student-profile/dashboard schema.
     lastAccessedActivityId: DataTypes.UUID,
+    unenrolledAt: DataTypes.DATE,
+    createdByUserId: DataTypes.UUID,
   });

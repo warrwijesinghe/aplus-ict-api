@@ -1,5 +1,6 @@
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
+import { requireCompletedProfile } from "./student-profile.service.js";
 
 const trackInclude = [
   { model: db.Course, where: { status: "published", isPublic: true }, include: [db.AcademicLevel] },
@@ -9,7 +10,7 @@ const trackInclude = [
 const enrollmentWhere = { status: "published", isPublic: true, availabilityStatus: "active", enrolmentOpen: true };
 
 export const enrollmentView = (enrollment) => ({
-  ...enrollment.toJSON(),
+  id: enrollment.id, courseTrackId: enrollment.courseTrackId, status: enrollment.status, enrolmentType: enrollment.source === "manual" ? "admin" : enrollment.source, enrolledAt: enrollment.enrolledAt, unenrolledAt: enrollment.unenrolledAt || null, lastAccessedAt: enrollment.lastAccessedAt || null,
   course: enrollment.CourseTrack ? {
     id: enrollment.CourseTrack.id,
     slug: enrollment.CourseTrack.slug,
@@ -35,12 +36,15 @@ export const getEnrollment = async (userId, courseTrackId) => {
 };
 
 export const enrollStudent = async (userId, courseTrackId) => db.sequelize.transaction(async (transaction) => {
+  await requireCompletedProfile(userId);
   const track = await db.CourseTrack.findOne({ where: { id: courseTrackId, ...enrollmentWhere }, include: trackInclude, transaction });
   if (!track) throw new ApiError(404, "An open published course was not found");
-  const [enrollment] = await db.Enrolment.findOrCreate({
+  const [enrollment, created] = await db.Enrolment.findOrCreate({
     where: { userId, courseTrackId }, defaults: { userId, courseTrackId, status: "active", source: "free", enrolledAt: new Date(), lastAccessedAt: new Date() }, transaction,
   });
-  if (!enrollment.isNewRecord && !enrollment.lastAccessedAt) await enrollment.update({ lastAccessedAt: new Date() }, { transaction });
+  if (!created && enrollment.status !== "active") await enrollment.update({ status: "active", source: "free", enrolledAt: enrollment.enrolledAt || new Date(), unenrolledAt: null }, { transaction });
+  if (!created && !enrollment.lastAccessedAt) await enrollment.update({ lastAccessedAt: new Date() }, { transaction });
+  if (created) await db.StudentLearningHistory.create({ userId, courseTrackId, eventType: "course_enrolled", occurredAt: new Date(), metadata: { source: "free" } }, { transaction });
   const hydrated = await db.Enrolment.findByPk(enrollment.id, { include: [{ model: db.CourseTrack, include: trackInclude }], transaction });
   return enrollmentView(hydrated);
 });

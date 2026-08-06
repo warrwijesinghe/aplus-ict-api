@@ -15,4 +15,6 @@ export const defineStudentProfile = (sequelize) =>
     town: DataTypes.STRING,
     guardianContactNumber: DataTypes.STRING,
     referralSource: DataTypes.STRING,
+    profileStatus: { type: DataTypes.ENUM("incomplete", "complete"), allowNull: false, defaultValue: "incomplete" },
+    completedAt: DataTypes.DATE,
   });

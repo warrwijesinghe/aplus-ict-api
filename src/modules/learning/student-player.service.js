@@ -5,6 +5,7 @@ import { publishedWhere } from "../content/content.service.js";
 import { serializeActivity } from "../content/activities/activity-serializer.js";
 import { accessibleProgress } from "./progress.service.js";
 import { accessState, clearManualCompletion, recordCompletion } from "./completion-gradebook.service.js";
+import { requireCompletedProfile } from "../students/student-profile.service.js";
 
 const title = (row) => row.titleEn || row.title;
 const activeTrackWhere = (slug) => ({
@@ -60,6 +61,7 @@ const activityCounts = (activities) => accessibleProgress(activities.map(({ acti
  * resource identifiers, or video configuration.
  */
 export const loadStudentCourse = async (userId, courseSlug, transaction) => {
+  await requireCompletedProfile(userId);
   const track = await db.CourseTrack.findOne({
     where: activeTrackWhere(courseSlug),
     include: [{ model: db.Course, where: { status: "published", isPublic: true }, include: [db.AcademicLevel] }, db.Medium],
@@ -153,8 +155,12 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
   if (recordOpen && !row.isLocked) {
     const now = new Date();
     await player.enrollment.update({ lastAccessedAt: now, lastAccessedActivityId: row.activity.id }, { transaction });
+    const [state] = await db.StudentCourseState.findOrCreate({ where: { userId, courseTrackId: player.track.id }, defaults: { userId, courseTrackId: player.track.id, lastLessonId: row.activity.lessonId, lastTopicId: row.activity.topicId || null, lastActivityId: row.activity.id, lastAccessedAt: now }, transaction });
+    if (!state.isNewRecord) await state.update({ lastLessonId: row.activity.lessonId, lastTopicId: row.activity.topicId || null, lastActivityId: row.activity.id, lastAccessedAt: now }, { transaction });
+    await db.StudentLearningHistory.create({ userId, courseTrackId: player.track.id, lessonId: row.activity.lessonId, topicId: row.activity.topicId || null, activityId: row.activity.id, eventType: "activity_opened", occurredAt: now }, { transaction });
     if (row.activity.completionMode === "view") {
       await recordCompletion(userId, row.activity.id, "view", null, transaction);
+      await db.StudentLearningHistory.create({ userId, courseTrackId: player.track.id, lessonId: row.activity.lessonId, topicId: row.activity.topicId || null, activityId: row.activity.id, eventType: "activity_completed", occurredAt: now }, { transaction });
     }
   }
   const freshProgress = recordOpen && !row.isLocked
@@ -185,7 +191,12 @@ export const setManualCompletion = async (userId, courseSlug, lessonSlug, activi
   const response = await activityPlayerResponse(userId, courseSlug, lessonSlug, activityId);
   if (response.current.isLocked) throw new ApiError(403, "Activity prerequisites are not met");
   if (response.current.completionMode !== "manual") throw new ApiError(422, "This activity does not support manual completion");
-  if (completed) await recordCompletion(userId, activityId, "manual", null, transaction);
+  if (completed) {
+    await recordCompletion(userId, activityId, "manual", null, transaction);
+    const activity = await db.LessonSection.findByPk(activityId, { transaction });
+    const lesson = await db.Lesson.findByPk(activity.lessonId, { transaction });
+    await db.StudentLearningHistory.create({ userId, courseTrackId: lesson.trackId, lessonId: activity.lessonId, topicId: activity.topicId || null, activityId, eventType: "activity_completed", occurredAt: new Date() }, { transaction });
+  }
   else await clearManualCompletion(userId, activityId, transaction);
   return activityPlayerResponse(userId, courseSlug, lessonSlug, activityId);
 });
@@ -193,7 +204,8 @@ export const setManualCompletion = async (userId, courseSlug, lessonSlug, activi
 export const continueLearning = async (userId, courseSlug) => {
   const player = await loadStudentCourse(userId, courseSlug);
   const accessible = player.activityRows.filter((row) => !row.isLocked);
-  const last = accessible.find((row) => row.activity.id === player.enrollment.lastAccessedActivityId);
+  const state = await db.StudentCourseState.findOne({ where: { userId, courseTrackId: player.track.id } });
+  const last = accessible.find((row) => row.activity.id === (state?.lastActivityId || player.enrollment.lastAccessedActivityId));
   const countableIncomplete = accessible.find((row) => row.activity.completionMode !== "none" && !["submit", "pass"].includes(row.activity.completionMode) && row.progress?.status !== "completed");
   const selected = last || countableIncomplete || accessible[0] || null;
   return { target: selected ? activityTarget(selected, player.lessons) : null, progress: player.progress };

@@ -30,9 +30,10 @@ import {
 import { accessibleProgress } from "./learning/progress.service.js";
 import { createLessonOrder } from "./orders/order.service.js";
 import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/payment.service.js";
-import { findStudentUsers } from "./users/user.service.js";
-import { getStudentProfile, saveStudentProfile } from "./students/student-profile.service.js";
+import { getStudentProfile, saveStudentProfile, requireCompletedProfile } from "./students/student-profile.service.js";
 import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment } from "./students/enrollment.service.js";
+import { courseState, dashboard, learningHistory } from "./students/student-learning.service.js";
+import { changeAdminEnrolment, listStudents, studentDetail, studentHistory, studentProgress, studentResults, updateAdminEnrolment } from "./students/student-admin.service.js";
 import siteRoutes from "./site/routes.js";
 import directPayRoutes from "./integrations/directpay/routes.js";
 import { PERMISSIONS } from "../security/permissions.js";
@@ -120,9 +121,15 @@ router.use(studentPlayerRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
+router.get("/student/enrolments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
 router.get("/student/enrollments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
+router.get("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseTrackId))));
 router.get("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseId))));
+router.post("/student/courses/:courseTrackId/enrol", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseTrackId), 201)));
 router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId), 201)));
+router.get("/student/dashboard", authenticate, asyncHandler(async (req, res) => { await requireCompletedProfile(req.user.sub); send(res, await dashboard(req.user.sub)); }));
+router.get("/student/courses/:courseTrackId/state", authenticate, asyncHandler(async (req, res) => send(res, await courseState(req.user.sub, req.params.courseTrackId))));
+router.get("/student/learning-history", authenticate, asyncHandler(async (req, res) => send(res, await learningHistory(req.user.sub, req.query))));
 
 const sectionAccessPolicy = (section) =>
   isPremium(section.accessPolicy) ? "premium" : "free";
@@ -1209,11 +1216,14 @@ crud("products", db.Product, [
   "currency",
   "status",
 ]);
-router.get(
-  "/admin/students",
-  ...admin,
-  asyncHandler(async (req, res) => send(res, await findStudentUsers())),
-);
+router.get("/admin/students", authenticate, requirePermission(PERMISSIONS.STUDENTS_READ), asyncHandler(async (req, res) => send(res, await listStudents(req.user, req.query))));
+router.get("/admin/students/:studentId", authenticate, requirePermission(PERMISSIONS.STUDENTS_READ), asyncHandler(async (req, res) => send(res, await studentDetail(req.user, req.params.studentId, req.query.courseTrackId))));
+router.get("/admin/students/:studentId/enrolments", authenticate, requirePermission(PERMISSIONS.ENROLLMENTS_READ), asyncHandler(async (req, res) => send(res, (await studentDetail(req.user, req.params.studentId, req.query.courseTrackId)).enrolments)));
+router.post("/admin/students/:studentId/enrolments", authenticate, requirePermission(PERMISSIONS.ENROLLMENTS_MANAGE), asyncHandler(async (req, res) => { const entry = await updateAdminEnrolment(req.user, req.params.studentId, req.body); await audit(req, "student_enrolment_added", "enrolment", entry.id, { studentId: req.params.studentId, courseTrackId: req.body.courseTrackId, enrolmentType: entry.enrolmentType }); send(res, entry, 201); }));
+router.patch("/admin/enrolments/:enrolmentId", authenticate, requirePermission(PERMISSIONS.ENROLLMENTS_MANAGE), asyncHandler(async (req, res) => { const entry = await changeAdminEnrolment(req.user, req.params.enrolmentId, req.body.status); await audit(req, "student_enrolment_updated", "enrolment", entry.id, { status: entry.status }); send(res, entry); }));
+router.get("/admin/students/:studentId/progress", authenticate, requirePermission(PERMISSIONS.PROGRESS_READ), asyncHandler(async (req, res) => send(res, await studentProgress(req.user, req.params.studentId, req.query.courseTrackId))));
+router.get("/admin/students/:studentId/results", authenticate, requirePermission(PERMISSIONS.GRADES_READ), asyncHandler(async (req, res) => send(res, await studentResults(req.user, req.params.studentId, req.query.courseTrackId))));
+router.get("/admin/students/:studentId/learning-history", authenticate, requirePermission(PERMISSIONS.STUDENTS_READ), asyncHandler(async (req, res) => send(res, await studentHistory(req.user, req.params.studentId, req.query))));
 router.get(
   "/admin/orders",
   ...admin,
