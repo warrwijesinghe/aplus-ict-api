@@ -13,7 +13,8 @@ export const validateQuestionDraft = (body, current = {}) => {
   if (has(body, "defaultMarks")) values.defaultMarks = decimal(body.defaultMarks, "defaultMarks", { min: 0.01 });
   if (has(body, "negativeMarks")) values.negativeMarks = decimal(body.negativeMarks, "negativeMarks", { min: 0 });
   if (has(body, "title")) { values.title = body.title === null ? null : String(body.title).trim().slice(0, 255); }
-  for (const field of ["questionText", "generalFeedback", "correctFeedback", "incorrectFeedback", "explanation"]) if (has(body, field)) values[field] = cleanHtml(body[field], field);
+  if (has(body, "questionText")) values.questionText = cleanHtml(body.questionText, "questionText");
+  for (const field of ["generalFeedback", "correctFeedback", "incorrectFeedback", "explanation"]) if (has(body, field)) values[field] = body[field] ? cleanHtml(body[field], field) : null;
   if (values.questionText === null) throw new ApiError(422, "questionText must not be empty");
   if ((values.negativeMarks ?? current.negativeMarks) !== null && Number(values.negativeMarks ?? current.negativeMarks) > Number(values.defaultMarks ?? current.defaultMarks)) throw new ApiError(422, "negativeMarks cannot exceed defaultMarks");
   return values;

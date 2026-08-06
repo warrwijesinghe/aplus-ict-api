@@ -21,6 +21,7 @@ describe("Question Bank validation and security", () => {
     expect(validateQuestionDraft({ ...base, questionText: "<script>x</script><p>Safe</p>" }).questionText).toBe("<p>Safe</p>");
     expect(() => validateQuestionDraft({ ...base, defaultMarks: 0 })).toThrow(ApiError);
     expect(() => validateQuestionDraft({ ...base, questionType: "unknown" })).toThrow("Unsupported questionType");
+    expect(validateQuestionDraft({ ...base, correctFeedback: "", incorrectFeedback: "" })).toMatchObject({ correctFeedback: null, incorrectFeedback: null });
   });
   it("enforces publish-time option and ordering rules", () => {
     expect(() => assertPublishable({ ...base, Options: [{ optionText: "A", isCorrect: false, sortOrder: 1 }, { optionText: "B", isCorrect: false, sortOrder: 2 }] })).toThrow("Exactly one correct option");
