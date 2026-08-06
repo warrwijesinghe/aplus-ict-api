@@ -16,6 +16,7 @@ export const defineCourseTrack = (sequelize) =>
     },
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },
     enrolmentOpen: { type: DataTypes.BOOLEAN, defaultValue: false },
+    coursePassPercentage: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 50 },
     sortOrder: { type: DataTypes.INTEGER, defaultValue: 0 },
     publishedAt: DataTypes.DATE,
   });

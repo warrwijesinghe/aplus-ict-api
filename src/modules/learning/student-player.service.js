@@ -4,6 +4,7 @@ import { db } from "../../models/index.js";
 import { publishedWhere } from "../content/content.service.js";
 import { serializeActivity } from "../content/activities/activity-serializer.js";
 import { accessibleProgress } from "./progress.service.js";
+import { accessState, clearManualCompletion, recordCompletion } from "./completion-gradebook.service.js";
 
 const title = (row) => row.titleEn || row.title;
 const activeTrackWhere = (slug) => ({
@@ -32,7 +33,7 @@ const courseIdentity = (track) => ({
   medium: track.Medium ? { code: track.Medium.code, name: track.Medium.nameEn || track.Medium.name } : null,
 });
 
-const navActivity = (activity, progress, isLocked) => ({
+const navActivity = (activity, progress, isLocked, access = null) => ({
   id: activity.id,
   type: activity.type,
   contentType: activity.type,
@@ -42,6 +43,7 @@ const navActivity = (activity, progress, isLocked) => ({
   estimatedMinutes: activity.estimatedMinutes || null,
   sortOrder: activity.sortOrder,
   isLocked,
+  accessState: access || { available: !isLocked, locked: isLocked, reasons: isLocked ? ["Course access is required."] : [], unmetRequirements: [] },
   progress: progress ? { status: progress.status, completedAt: progress.completedAt } : { status: "not_started", completedAt: null },
 });
 
@@ -86,10 +88,14 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
   ]);
   const progressByActivity = new Map(progressRows.map((item) => [item.lessonSectionId, item]));
   const entitledLessons = new Set(entitlementRows.map((item) => item.lessonId));
-  const activityRows = visibleActivities.map((activity) => ({
+  const initialRows = visibleActivities.map((activity) => ({
     activity,
     progress: progressByActivity.get(activity.id),
     isLocked: ["premium", "paid"].includes(activity.accessPolicy) && !entitledLessons.has(activity.lessonId),
+  }));
+  const activityRows = await Promise.all(initialRows.map(async (row) => {
+    const state = await accessState(userId, row.activity.id, transaction);
+    return { ...row, isLocked: state.locked, access: state };
   }));
   const byLesson = new Map(lessons.map((lesson) => [lesson.id, []]));
   activityRows.forEach((row) => byLesson.get(row.activity.lessonId)?.push(row));
@@ -103,10 +109,10 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
       id: topic.id,
       title: title(topic),
       sortOrder: topic.sortOrder,
-      activities: lessonActivities.filter((row) => row.activity.topicId === topic.id).map((row) => navActivity(row.activity, row.progress, row.isLocked)),
+      activities: lessonActivities.filter((row) => row.activity.topicId === topic.id).map((row) => navActivity(row.activity, row.progress, row.isLocked, row.access)),
     }));
     const ungrouped = lessonActivities.filter((row) => !row.activity.topicId);
-    if (ungrouped.length) groups.unshift({ id: `lesson-${lesson.id}-content`, title: "Lesson content", sortOrder: 0, activities: ungrouped.map((row) => navActivity(row.activity, row.progress, row.isLocked)) });
+    if (ungrouped.length) groups.unshift({ id: `lesson-${lesson.id}-content`, title: "Lesson content", sortOrder: 0, activities: ungrouped.map((row) => navActivity(row.activity, row.progress, row.isLocked, row.access)) });
     return {
       id: lesson.id,
       slug: lesson.slug,
@@ -148,12 +154,7 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
     const now = new Date();
     await player.enrollment.update({ lastAccessedAt: now, lastAccessedActivityId: row.activity.id }, { transaction });
     if (row.activity.completionMode === "view") {
-      const [progress] = await db.ContentProgress.findOrCreate({
-        where: { userId, lessonSectionId: row.activity.id },
-        defaults: { status: "completed", completedAt: now },
-        transaction,
-      });
-      if (progress.status !== "completed") await progress.update({ status: "completed", completedAt: now }, { transaction });
+      await recordCompletion(userId, row.activity.id, "view", null, transaction);
     }
   }
   const freshProgress = recordOpen && !row.isLocked
@@ -161,7 +162,7 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
     : row.progress;
   const detail = await db.LessonSection.findByPk(row.activity.id, { transaction });
   const current = row.isLocked
-    ? navActivity(row.activity, freshProgress, true)
+    ? navActivity(row.activity, freshProgress, true, row.access)
     : { ...serializeActivity(detail, "authorized_student"), progress: freshProgress ? { status: freshProgress.status, completedAt: freshProgress.completedAt } : { status: "not_started", completedAt: null } };
   if (!row.isLocked && detail.type === "quiz") {
     const quiz = await db.Quiz.findOne({ where: { lessonSectionId: detail.id }, attributes: ["id"], transaction });
@@ -182,14 +183,10 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
 
 export const setManualCompletion = async (userId, courseSlug, lessonSlug, activityId, completed) => db.sequelize.transaction(async (transaction) => {
   const response = await activityPlayerResponse(userId, courseSlug, lessonSlug, activityId);
-  if (response.current.isLocked) throw new ApiError(403, "Premium content access required");
+  if (response.current.isLocked) throw new ApiError(403, "Activity prerequisites are not met");
   if (response.current.completionMode !== "manual") throw new ApiError(422, "This activity does not support manual completion");
-  if (completed) {
-    const [progress] = await db.ContentProgress.findOrCreate({ where: { userId, lessonSectionId: activityId }, defaults: { status: "completed", completedAt: new Date() }, transaction });
-    if (progress.status !== "completed") await progress.update({ status: "completed", completedAt: new Date() }, { transaction });
-  } else {
-    await db.ContentProgress.destroy({ where: { userId, lessonSectionId: activityId }, transaction });
-  }
+  if (completed) await recordCompletion(userId, activityId, "manual", null, transaction);
+  else await clearManualCompletion(userId, activityId, transaction);
   return activityPlayerResponse(userId, courseSlug, lessonSlug, activityId);
 });
 

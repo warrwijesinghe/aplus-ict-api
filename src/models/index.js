@@ -31,6 +31,8 @@ import { defineResourceLink } from "./resource-link.model.js";
 import { defineQuestionCategory, defineQuestion, defineQuestionOption, defineQuestionAcceptedAnswer, defineQuestionNumericAnswer, defineQuestionMatchingPair, defineQuestionOrderingItem, defineQuestionEssayConfig, defineQuestionTag, defineQuestionTagAssignment } from "./question-bank.model.js";
 import { defineQuiz, defineQuizQuestion, defineQuizRandomRule } from "./quiz.model.js";
 import { defineQuizAttempt, defineQuizAttemptQuestion, defineQuizAnswer, defineQuizAnswerOption, defineQuizAnswerMatchingItem, defineQuizAnswerOrderingItem, defineQuizGrade } from "./quiz-attempt.model.js";
+import { defineActivityCompletion } from "./activity-completion.model.js";
+import { defineActivityPrerequisite, defineTeacherActivityApproval, defineTeacherGradeComment } from "./activity-prerequisite.model.js";
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
@@ -82,6 +84,10 @@ export const QuizAnswerOption = defineQuizAnswerOption(sequelize);
 export const QuizAnswerMatchingItem = defineQuizAnswerMatchingItem(sequelize);
 export const QuizAnswerOrderingItem = defineQuizAnswerOrderingItem(sequelize);
 export const QuizGrade = defineQuizGrade(sequelize);
+export const ActivityCompletion = defineActivityCompletion(sequelize);
+export const ActivityPrerequisite = defineActivityPrerequisite(sequelize);
+export const TeacherActivityApproval = defineTeacherActivityApproval(sequelize);
+export const TeacherGradeComment = defineTeacherGradeComment(sequelize);
 
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
@@ -161,6 +167,10 @@ QuizAttempt.hasMany(QuizAttemptQuestion, { foreignKey: "quizAttemptId", as: "Att
 QuizAttempt.hasMany(QuizAnswer, { foreignKey: "quizAttemptId", as: "Answers" }); QuizAnswer.belongsTo(QuizAttempt, { foreignKey: "quizAttemptId" }); QuizAttemptQuestion.hasOne(QuizAnswer, { foreignKey: "quizAttemptQuestionId", as: "Answer" }); QuizAnswer.belongsTo(QuizAttemptQuestion, { foreignKey: "quizAttemptQuestionId", as: "AttemptQuestion" });
 QuizAnswer.hasMany(QuizAnswerOption, { foreignKey: "quizAnswerId", as: "SelectedOptions" }); QuizAnswerOption.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" }); QuizAnswer.hasMany(QuizAnswerMatchingItem, { foreignKey: "quizAnswerId", as: "MatchingItems" }); QuizAnswerMatchingItem.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" }); QuizAnswer.hasMany(QuizAnswerOrderingItem, { foreignKey: "quizAnswerId", as: "OrderingItems" }); QuizAnswerOrderingItem.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" });
 QuizAttempt.hasOne(QuizGrade, { foreignKey: "quizAttemptId", as: "Grade" }); QuizGrade.belongsTo(QuizAttempt, { foreignKey: "quizAttemptId" }); Quiz.hasMany(QuizGrade, { foreignKey: "quizId" }); User.hasMany(QuizGrade, { foreignKey: "userId", as: "QuizGrades" });
+User.hasMany(ActivityCompletion, { foreignKey: "userId" }); ActivityCompletion.belongsTo(User, { foreignKey: "userId" }); LessonSection.hasMany(ActivityCompletion, { foreignKey: "activityId" }); ActivityCompletion.belongsTo(LessonSection, { foreignKey: "activityId" });
+LessonSection.hasMany(ActivityPrerequisite, { foreignKey: "activityId", as: "Prerequisites" }); ActivityPrerequisite.belongsTo(LessonSection, { foreignKey: "activityId", as: "Activity" });
+User.hasMany(TeacherActivityApproval, { foreignKey: "userId", as: "ActivityApprovals" }); TeacherActivityApproval.belongsTo(User, { foreignKey: "userId" }); LessonSection.hasMany(TeacherActivityApproval, { foreignKey: "activityId" }); TeacherActivityApproval.belongsTo(LessonSection, { foreignKey: "activityId" });
+User.hasMany(TeacherGradeComment, { foreignKey: "userId", as: "GradeComments" }); TeacherGradeComment.belongsTo(User, { foreignKey: "userId" }); CourseTrack.hasMany(TeacherGradeComment, { foreignKey: "courseTrackId" }); TeacherGradeComment.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
 
 export const db = {
   sequelize,
@@ -195,4 +205,5 @@ export const db = {
   ResourceLink,
   QuestionCategory, Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig, QuestionTag, QuestionTagAssignment,
   Quiz, QuizQuestion, QuizRandomRule, QuizAttempt, QuizAttemptQuestion, QuizAnswer, QuizAnswerOption, QuizAnswerMatchingItem, QuizAnswerOrderingItem, QuizGrade,
+  ActivityCompletion, ActivityPrerequisite, TeacherActivityApproval, TeacherGradeComment,
 };

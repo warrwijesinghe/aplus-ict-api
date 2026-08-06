@@ -5,6 +5,8 @@ import { db } from "../../models/index.js";
 import { sanitizeEducationalHtml } from "../content/activities/html-sanitizer.js";
 import { canAccessContent } from "../learning/access.service.js";
 import { candidateWhere } from "./quiz.service.js";
+import { recordCompletion } from "../learning/completion-gradebook.service.js";
+import { accessState } from "../learning/completion-gradebook.service.js";
 
 const completedStatuses = ["auto_graded", "pending_manual_grading", "graded", "expired"];
 const openStatuses = ["in_progress"];
@@ -44,6 +46,8 @@ export const assertStudentQuizAccess = async (userId, quiz, transaction, { enfor
   if (!enrollment) throw new ApiError(403, "Course enrollment is required");
   const lesson = await db.Lesson.findByPk(quiz.lessonId, { transaction });
   if (!lesson || !(await canAccessContent(userId, lesson, activity))) throw new ApiError(403, "Premium content access required");
+  const state = await accessState(userId, activity.id, transaction);
+  if (state.locked) throw new ApiError(403, "Activity prerequisites are not met");
   const current = now();
   if (enforceAvailability && quiz.availableFrom && new Date(quiz.availableFrom) > current) throw new ApiError(409, "Quiz is not available yet");
   if (enforceAvailability && quiz.availableUntil && new Date(quiz.availableUntil) <= current) throw new ApiError(409, "Quiz is no longer available");
@@ -133,8 +137,7 @@ const updateCompletion = async (attempt, transaction) => {
   if (!activity || !["submit", "pass"].includes(activity.completionMode)) return;
   const complete = activity.completionMode === "submit" || (activity.completionMode === "pass" && attempt.gradingStatus === "graded" && attempt.passed === true);
   if (!complete) return;
-  const [progress] = await db.ContentProgress.findOrCreate({ where: { userId: attempt.userId, lessonSectionId: activity.id }, defaults: { status: "completed", completedAt: now() }, transaction });
-  if (progress.status !== "completed") await progress.update({ status: "completed", completedAt: now() }, { transaction });
+  await recordCompletion(attempt.userId, activity.id, activity.completionMode === "pass" ? "quiz_pass" : "quiz_submission", attempt.id, transaction);
 };
 const gradeAttempt = async (attempt, transaction, expired = false) => {
   if (completedStatuses.includes(attempt.status)) return attempt;
