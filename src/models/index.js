@@ -29,6 +29,7 @@ import { defineEducatorAssignment } from "./educator-assignment.model.js";
 import { defineAuditLog } from "./audit-log.model.js";
 import { defineResourceLink } from "./resource-link.model.js";
 import { defineQuestionCategory, defineQuestion, defineQuestionOption, defineQuestionAcceptedAnswer, defineQuestionNumericAnswer, defineQuestionMatchingPair, defineQuestionOrderingItem, defineQuestionEssayConfig, defineQuestionTag, defineQuestionTagAssignment } from "./question-bank.model.js";
+import { defineQuiz, defineQuizQuestion, defineQuizRandomRule } from "./quiz.model.js";
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
@@ -70,6 +71,9 @@ export const QuestionOrderingItem = defineQuestionOrderingItem(sequelize);
 export const QuestionEssayConfig = defineQuestionEssayConfig(sequelize);
 export const QuestionTag = defineQuestionTag(sequelize);
 export const QuestionTagAssignment = defineQuestionTagAssignment(sequelize);
+export const Quiz = defineQuiz(sequelize);
+export const QuizQuestion = defineQuizQuestion(sequelize);
+export const QuizRandomRule = defineQuizRandomRule(sequelize);
 
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
@@ -141,6 +145,9 @@ Course.hasMany(Question, { foreignKey: "courseId" }); Question.belongsTo(Course,
 Question.hasMany(QuestionOption, { foreignKey: "questionId", as: "Options" }); QuestionOption.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionAcceptedAnswer, { foreignKey: "questionId", as: "AcceptedAnswers" }); QuestionAcceptedAnswer.belongsTo(Question, { foreignKey: "questionId" }); Question.hasOne(QuestionNumericAnswer, { foreignKey: "questionId", as: "NumericAnswer" }); QuestionNumericAnswer.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionMatchingPair, { foreignKey: "questionId", as: "MatchingPairs" }); QuestionMatchingPair.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionOrderingItem, { foreignKey: "questionId", as: "OrderingItems" }); QuestionOrderingItem.belongsTo(Question, { foreignKey: "questionId" }); Question.hasOne(QuestionEssayConfig, { foreignKey: "questionId", as: "EssayConfig" }); QuestionEssayConfig.belongsTo(Question, { foreignKey: "questionId" });
 Course.hasMany(QuestionTag, { foreignKey: "courseId" }); QuestionTag.belongsTo(Course, { foreignKey: "courseId" }); Question.belongsToMany(QuestionTag, { through: QuestionTagAssignment, foreignKey: "questionId", as: "Tags" }); QuestionTag.belongsToMany(Question, { through: QuestionTagAssignment, foreignKey: "questionTagId" });
 Question.hasMany(ResourceLink, { foreignKey: "entityId", as: "ResourceLinks", constraints: false });
+LessonSection.hasOne(Quiz, { foreignKey: "lessonSectionId", as: "Quiz" }); Quiz.belongsTo(LessonSection, { foreignKey: "lessonSectionId", as: "Activity" });
+Course.hasMany(Quiz, { foreignKey: "courseId" }); Quiz.belongsTo(Course, { foreignKey: "courseId" }); CourseTrack.hasMany(Quiz, { foreignKey: "courseTrackId" }); Quiz.belongsTo(CourseTrack, { foreignKey: "courseTrackId" }); Lesson.hasMany(Quiz, { foreignKey: "lessonId" }); Quiz.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(Quiz, { foreignKey: "topicId" }); Quiz.belongsTo(Topic, { foreignKey: "topicId" });
+Quiz.hasMany(QuizQuestion, { foreignKey: "quizId", as: "QuizQuestions" }); QuizQuestion.belongsTo(Quiz, { foreignKey: "quizId" }); Question.hasMany(QuizQuestion, { foreignKey: "questionId" }); QuizQuestion.belongsTo(Question, { foreignKey: "questionId", as: "Question" }); Quiz.hasMany(QuizRandomRule, { foreignKey: "quizId", as: "RandomRules" }); QuizRandomRule.belongsTo(Quiz, { foreignKey: "quizId" });
 
 export const db = {
   sequelize,
@@ -174,4 +181,5 @@ export const db = {
   AuditLog,
   ResourceLink,
   QuestionCategory, Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig, QuestionTag, QuestionTagAssignment,
+  Quiz, QuizQuestion, QuizRandomRule,
 };
