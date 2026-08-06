@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { directPayHealth } from "../src/modules/integrations/directpay/directpay.service.js";
-import { responseSigningPayload, signPayload, verifyPayload } from "../src/modules/integrations/directpay/directpay.signature.js";
+import { browserSigningPayload, responseSigningPayload, signPayload, verifyPayload } from "../src/modules/integrations/directpay/directpay.signature.js";
 
 const keyPair = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const privateKey = keyPair.privateKey.export({ type: "pkcs8", format: "pem" });
@@ -25,6 +25,13 @@ describe("DirectPay sandbox foundation", () => {
 
   it("rejects an invalid response signature", () => {
     expect(verifyPayload(responseSigningPayload(response), "not-a-signature", publicKey)).toBe(false);
+  });
+
+  it("uses the documented browser field order and binds the amount to the signature", () => {
+    const request = { merchantId: "merchant", amount: "2500.00", currency: "LKR", pluginName: "CUSTOM", pluginVersion: "1.0", returnUrl: "https://web.test/return", cancelUrl: "https://web.test/cancel", orderId: "APLDP-1", reference: "APLDP-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", description: "Exam Success Pack", apiKey: "test-key", responseUrl: "https://api.test/callback" };
+    const signature = signPayload(browserSigningPayload(request), privateKey);
+    expect(verifyPayload(browserSigningPayload(request), signature, publicKey)).toBe(true);
+    expect(verifyPayload(browserSigningPayload({ ...request, amount: "2500.01" }), signature, publicKey)).toBe(false);
   });
 
   it("rejects malformed callback payloads and never grants access", async () => {

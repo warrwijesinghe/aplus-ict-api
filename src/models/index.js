@@ -19,6 +19,8 @@ import { defineOrder } from "./order.model.js";
 import { defineOrderItem } from "./order-item.model.js";
 import { defineOrderStatusHistory } from "./order-status-history.model.js";
 import { definePayment } from "./payment.model.js";
+import { definePaymentTransaction } from "./payment-transaction.model.js";
+import { definePaymentProviderEvent } from "./payment-provider-event.model.js";
 import { defineGoogleIdentity } from "./google-identity.model.js";
 import { defineStudentProfile } from "./student-profile.model.js";
 import { defineStudentCourseState } from "./student-course-state.model.js";
@@ -59,6 +61,8 @@ export const Order = defineOrder(sequelize);
 export const OrderItem = defineOrderItem(sequelize);
 export const OrderStatusHistory = defineOrderStatusHistory(sequelize);
 export const Payment = definePayment(sequelize);
+export const PaymentTransaction = definePaymentTransaction(sequelize);
+export const PaymentProviderEvent = definePaymentProviderEvent(sequelize);
 export const GoogleIdentity = defineGoogleIdentity(sequelize);
 export const StudentProfile = defineStudentProfile(sequelize);
 export const StudentCourseState = defineStudentCourseState(sequelize);
@@ -126,6 +130,10 @@ CourseTrack.hasMany(Product, { foreignKey: "courseTrackId" }); Product.belongsTo
 // Commerce relationships. Entitlements retain IDs to preserve a clear commerce/learning boundary.
 Order.hasMany(OrderItem, { foreignKey: "orderId" });
 Order.hasMany(Payment, { foreignKey: "orderId" });
+Order.hasMany(PaymentTransaction, { foreignKey: "orderId", as: "PaymentTransactions" });
+PaymentTransaction.belongsTo(Order, { foreignKey: "orderId" });
+PaymentTransaction.hasMany(PaymentProviderEvent, { foreignKey: "paymentTransactionId", as: "ProviderEvents" });
+PaymentProviderEvent.belongsTo(PaymentTransaction, { foreignKey: "paymentTransactionId" });
 Payment.belongsTo(Order, { foreignKey: "orderId" });
 Payment.belongsTo(Resource, { foreignKey: "paymentSlipResourceId", as: "PaymentSlip" });
 Order.belongsTo(User, { foreignKey: "userId" });
@@ -218,6 +226,8 @@ export const db = {
   OrderItem,
   OrderStatusHistory,
   Payment,
+  PaymentTransaction,
+  PaymentProviderEvent,
   GoogleIdentity,
   StudentProfile,
   Role,
