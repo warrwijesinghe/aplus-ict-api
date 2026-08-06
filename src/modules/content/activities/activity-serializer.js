@@ -3,7 +3,7 @@ import { sanitizeEducationalHtml } from "./html-sanitizer.js";
 
 const base = (activity) => ({
   id: activity.id, type: activity.type, contentType: activity.type,
-  title: activity.titleEn || activity.title, titleEn: activity.titleEn || activity.title, titleSi: activity.titleSi || null,
+  title: activity.title || activity.titleEn, titleEn: activity.titleEn || activity.title, titleSi: activity.titleSi || null,
   descriptionEn: activity.descriptionEn || null, descriptionSi: activity.descriptionSi || null,
   accessPolicy: isPremium(activity.accessPolicy) ? "premium" : "free",
   completionMode: activity.completionMode || "none", estimatedMinutes: activity.estimatedMinutes || null,

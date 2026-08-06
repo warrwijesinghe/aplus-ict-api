@@ -54,4 +54,7 @@ describe("Learning Activity student serialization", () => {
     expect(serializeActivity(premiumVideo, "public")).not.toHaveProperty("youtubeUrl");
     expect(serializeActivity(premiumVideo, "authorized_student")).toMatchObject({ isLocked: false, youtubeUrl: premiumVideo.youtubeUrl, resourceId: "resource-1" });
   });
+  it("prefers the current authored title over a legacy English fallback", () => {
+    expect(serializeActivity({ ...premiumVideo, title: "දත්ත සහ තොරතුරු", titleEn: "Legacy page title" }, "admin")).toMatchObject({ title: "දත්ත සහ තොරතුරු", titleEn: "Legacy page title" });
+  });
 });
