@@ -30,6 +30,7 @@ import { defineAuditLog } from "./audit-log.model.js";
 import { defineResourceLink } from "./resource-link.model.js";
 import { defineQuestionCategory, defineQuestion, defineQuestionOption, defineQuestionAcceptedAnswer, defineQuestionNumericAnswer, defineQuestionMatchingPair, defineQuestionOrderingItem, defineQuestionEssayConfig, defineQuestionTag, defineQuestionTagAssignment } from "./question-bank.model.js";
 import { defineQuiz, defineQuizQuestion, defineQuizRandomRule } from "./quiz.model.js";
+import { defineQuizAttempt, defineQuizAttemptQuestion, defineQuizAnswer, defineQuizAnswerOption, defineQuizAnswerMatchingItem, defineQuizAnswerOrderingItem, defineQuizGrade } from "./quiz-attempt.model.js";
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
@@ -74,6 +75,13 @@ export const QuestionTagAssignment = defineQuestionTagAssignment(sequelize);
 export const Quiz = defineQuiz(sequelize);
 export const QuizQuestion = defineQuizQuestion(sequelize);
 export const QuizRandomRule = defineQuizRandomRule(sequelize);
+export const QuizAttempt = defineQuizAttempt(sequelize);
+export const QuizAttemptQuestion = defineQuizAttemptQuestion(sequelize);
+export const QuizAnswer = defineQuizAnswer(sequelize);
+export const QuizAnswerOption = defineQuizAnswerOption(sequelize);
+export const QuizAnswerMatchingItem = defineQuizAnswerMatchingItem(sequelize);
+export const QuizAnswerOrderingItem = defineQuizAnswerOrderingItem(sequelize);
+export const QuizGrade = defineQuizGrade(sequelize);
 
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
@@ -148,6 +156,11 @@ Question.hasMany(ResourceLink, { foreignKey: "entityId", as: "ResourceLinks", co
 LessonSection.hasOne(Quiz, { foreignKey: "lessonSectionId", as: "Quiz" }); Quiz.belongsTo(LessonSection, { foreignKey: "lessonSectionId", as: "Activity" });
 Course.hasMany(Quiz, { foreignKey: "courseId" }); Quiz.belongsTo(Course, { foreignKey: "courseId" }); CourseTrack.hasMany(Quiz, { foreignKey: "courseTrackId" }); Quiz.belongsTo(CourseTrack, { foreignKey: "courseTrackId" }); Lesson.hasMany(Quiz, { foreignKey: "lessonId" }); Quiz.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(Quiz, { foreignKey: "topicId" }); Quiz.belongsTo(Topic, { foreignKey: "topicId" });
 Quiz.hasMany(QuizQuestion, { foreignKey: "quizId", as: "QuizQuestions" }); QuizQuestion.belongsTo(Quiz, { foreignKey: "quizId" }); Question.hasMany(QuizQuestion, { foreignKey: "questionId" }); QuizQuestion.belongsTo(Question, { foreignKey: "questionId", as: "Question" }); Quiz.hasMany(QuizRandomRule, { foreignKey: "quizId", as: "RandomRules" }); QuizRandomRule.belongsTo(Quiz, { foreignKey: "quizId" });
+Quiz.hasMany(QuizAttempt, { foreignKey: "quizId", as: "Attempts" }); QuizAttempt.belongsTo(Quiz, { foreignKey: "quizId" }); User.hasMany(QuizAttempt, { foreignKey: "userId", as: "QuizAttempts" }); QuizAttempt.belongsTo(User, { foreignKey: "userId", as: "Student" });
+QuizAttempt.hasMany(QuizAttemptQuestion, { foreignKey: "quizAttemptId", as: "AttemptQuestions" }); QuizAttemptQuestion.belongsTo(QuizAttempt, { foreignKey: "quizAttemptId" }); Question.hasMany(QuizAttemptQuestion, { foreignKey: "questionId" }); QuizAttemptQuestion.belongsTo(Question, { foreignKey: "questionId" });
+QuizAttempt.hasMany(QuizAnswer, { foreignKey: "quizAttemptId", as: "Answers" }); QuizAnswer.belongsTo(QuizAttempt, { foreignKey: "quizAttemptId" }); QuizAttemptQuestion.hasOne(QuizAnswer, { foreignKey: "quizAttemptQuestionId", as: "Answer" }); QuizAnswer.belongsTo(QuizAttemptQuestion, { foreignKey: "quizAttemptQuestionId", as: "AttemptQuestion" });
+QuizAnswer.hasMany(QuizAnswerOption, { foreignKey: "quizAnswerId", as: "SelectedOptions" }); QuizAnswerOption.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" }); QuizAnswer.hasMany(QuizAnswerMatchingItem, { foreignKey: "quizAnswerId", as: "MatchingItems" }); QuizAnswerMatchingItem.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" }); QuizAnswer.hasMany(QuizAnswerOrderingItem, { foreignKey: "quizAnswerId", as: "OrderingItems" }); QuizAnswerOrderingItem.belongsTo(QuizAnswer, { foreignKey: "quizAnswerId" });
+QuizAttempt.hasOne(QuizGrade, { foreignKey: "quizAttemptId", as: "Grade" }); QuizGrade.belongsTo(QuizAttempt, { foreignKey: "quizAttemptId" }); Quiz.hasMany(QuizGrade, { foreignKey: "quizId" }); User.hasMany(QuizGrade, { foreignKey: "userId", as: "QuizGrades" });
 
 export const db = {
   sequelize,
@@ -181,5 +194,5 @@ export const db = {
   AuditLog,
   ResourceLink,
   QuestionCategory, Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig, QuestionTag, QuestionTagAssignment,
-  Quiz, QuizQuestion, QuizRandomRule,
+  Quiz, QuizQuestion, QuizRandomRule, QuizAttempt, QuizAttemptQuestion, QuizAnswer, QuizAnswerOption, QuizAnswerMatchingItem, QuizAnswerOrderingItem, QuizGrade,
 };

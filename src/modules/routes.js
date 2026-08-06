@@ -43,6 +43,7 @@ import { publishedWhere } from "./content/content.service.js";
 import studentPlayerRoutes from "./learning/student-player.routes.js";
 import { createQuestionBankRouter } from "./question-bank/question-bank.routes.js";
 import { createQuizRouter } from "./quiz/quiz.routes.js";
+import { createQuizAttemptRouter } from "./quiz/quiz-attempt.routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -112,6 +113,7 @@ router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(P
 router.use(createContentAdminRouter());
 router.use(createQuestionBankRouter());
 router.use(createQuizRouter());
+router.use(createQuizAttemptRouter());
 router.use(studentPlayerRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));

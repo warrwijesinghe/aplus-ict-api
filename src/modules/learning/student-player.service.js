@@ -163,6 +163,10 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
   const current = row.isLocked
     ? navActivity(row.activity, freshProgress, true)
     : { ...serializeActivity(detail, "authorized_student"), progress: freshProgress ? { status: freshProgress.status, completedAt: freshProgress.completedAt } : { status: "not_started", completedAt: null } };
+  if (!row.isLocked && detail.type === "quiz") {
+    const quiz = await db.Quiz.findOne({ where: { lessonSectionId: detail.id }, attributes: ["id"], transaction });
+    current.quizId = quiz?.id || null;
+  }
   const previous = player.activityRows.slice(0, currentIndex).reverse().find((item) => !item.isLocked);
   const next = player.activityRows.slice(currentIndex + 1).find((item) => !item.isLocked);
   const updatedRows = player.activityRows.map((item) => item.activity.id === row.activity.id ? { ...item, progress: freshProgress } : item);
