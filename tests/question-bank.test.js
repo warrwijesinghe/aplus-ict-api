@@ -2,13 +2,16 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { ApiError } from "../src/core/errors.js";
 import { QUESTION_TYPES } from "../src/modules/question-bank/question-type-registry.js";
-import { questionCategorySlug } from "../src/modules/question-bank/question-category.service.js";
+import { normalizeQuestionCategoryReferences, questionCategorySlug } from "../src/modules/question-bank/question-category.service.js";
 import { assertPublishable, normalizeTypeSpecificData, validateQuestionDraft } from "../src/modules/question-bank/question-validator.js";
 
 const base = { questionText: "<p>What is ICT?</p>", defaultMarks: 1, questionType: "single_choice" };
 describe("Question Bank validation and security", () => {
   it("derives a valid category slug for normal Admin category names", () => {
     expect(questionCategorySlug("Lesson 01 — Concept of ICT")).toBe("lesson-01-concept-of-ict");
+  });
+  it("normalizes optional category references from the Admin form", () => {
+    expect(normalizeQuestionCategoryReferences({ lessonId: "", topicId: "", parentCategoryId: "" })).toEqual({ lessonId: null, topicId: null, parentCategoryId: null });
   });
   it("has a controlled registry for all supported question types", () => {
     expect(Object.keys(QUESTION_TYPES)).toEqual(["single_choice", "multiple_choice", "true_false", "short_answer", "numeric", "matching", "ordering", "essay"]);
