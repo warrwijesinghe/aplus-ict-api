@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { hasCourseAssignment, privilegedRoles } from "../../security/authorization.js";
+import { entitledLessonIds } from "../commerce/commerce.service.js";
 
 export const PREREQUISITE_COMBINATION = "all";
 const now = () => new Date();
@@ -31,7 +32,7 @@ const courseActivities = async (trackId, transaction) => {
   return { lessons, topics, activities: activities.filter((row) => !row.topicId || validTopics.get(row.topicId)?.lessonId === row.lessonId) };
 };
 
-const entitlementLessons = async (userId, lessonIds, transaction) => new Set((await db.Entitlement.findAll({ where: { userId, lessonId: { [Op.in]: lessonIds }, status: "active", [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: now() } }] }, transaction })).map((row) => row.lessonId));
+const entitlementLessons = (userId, lessonIds, transaction) => entitledLessonIds(userId, lessonIds, transaction);
 const premiumLocked = (activity, entitled) => ["premium", "paid"].includes(activity.accessPolicy) && !entitled.has(activity.lessonId);
 
 const gradeForQuiz = async (userId, quizId, transaction) => {

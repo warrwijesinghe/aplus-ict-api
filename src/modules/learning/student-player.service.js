@@ -6,6 +6,7 @@ import { serializeActivity } from "../content/activities/activity-serializer.js"
 import { accessibleProgress } from "./progress.service.js";
 import { accessState, clearManualCompletion, recordCompletion } from "./completion-gradebook.service.js";
 import { requireCompletedProfile } from "../students/student-profile.service.js";
+import { entitledLessonIds } from "../commerce/commerce.service.js";
 
 const title = (row) => row.titleEn || row.title;
 const activeTrackWhere = (slug) => ({
@@ -86,10 +87,10 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
   const visibleActivities = activities.filter((activity) => !activity.topicId || topicsById.get(activity.topicId)?.lessonId === activity.lessonId);
   const [progressRows, entitlementRows] = await Promise.all([
     db.ContentProgress.findAll({ where: { userId, lessonSectionId: { [Op.in]: visibleActivities.map((activity) => activity.id) } }, transaction }),
-    db.Entitlement.findAll({ where: { userId, lessonId: { [Op.in]: lessonIds }, status: "active", [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] }, transaction }),
+    entitledLessonIds(userId, lessonIds, transaction),
   ]);
   const progressByActivity = new Map(progressRows.map((item) => [item.lessonSectionId, item]));
-  const entitledLessons = new Set(entitlementRows.map((item) => item.lessonId));
+  const entitledLessons = entitlementRows;
   const initialRows = visibleActivities.map((activity) => ({
     activity,
     progress: progressByActivity.get(activity.id),

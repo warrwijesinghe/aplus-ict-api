@@ -1,5 +1,6 @@
 import { db } from "../../models/index.js";
 import { ApiError } from "../../core/errors.js";
+import { grantOrderEntitlements } from "../commerce/commerce.service.js";
 
 /**
  * A manual confirmation atomically marks payment/order paid and creates lesson access.
@@ -24,22 +25,10 @@ export const confirmPaymentAndGrantEntitlements = async (
       },
       { transaction },
     );
-    await order.update({ status: "paid" }, { transaction });
-
-    const items = await db.OrderItem.findAll({
-      where: { orderId: order.id },
-      transaction,
-    });
-    await db.Entitlement.bulkCreate(
-      items.map((item) => ({
-        userId: order.userId,
-        lessonId: item.lessonId,
-        orderId: order.id,
-        status: "active",
-        startsAt: new Date(),
-      })),
-      { transaction, ignoreDuplicates: true },
-    );
+    const fromStatus = order.status;
+    await order.update({ status: "completed", paymentStatus: "verified", paymentMethod: payment.method || "bank_transfer", completedAt: new Date() }, { transaction });
+    await grantOrderEntitlements(order, adminUserId, transaction);
+    await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "completed", paymentStatus: "verified", actorUserId: adminUserId, reason: "bank_transfer_verified" }, { transaction });
     return payment;
   });
 

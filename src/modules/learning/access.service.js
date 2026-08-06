@@ -1,21 +1,12 @@
-import { Op } from "sequelize";
-import { db } from "../../models/index.js";
 import { isPremium } from "../content/activity-registry.js";
+import { hasPremiumAccess } from "../commerce/commerce.service.js";
 
 /**
  * An entitlement unlocks the premium part of one lesson. Free sections
  * never require a purchase, even when they sit inside a premium lesson.
  */
 export const canAccessLesson = async (userId, lesson) => {
-  const entitlement = await db.Entitlement.findOne({
-    where: {
-      userId,
-      lessonId: lesson.id,
-      status: "active",
-      [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }],
-    },
-  });
-  return Boolean(entitlement);
+  return hasPremiumAccess(userId, { lessonId: lesson.id, courseTrackId: lesson.trackId });
 };
 
 export const canAccessContent = async (

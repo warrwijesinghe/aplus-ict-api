@@ -1,0 +1,46 @@
+import { Router } from "express";
+import crypto from "crypto";
+import { Op } from "sequelize";
+import { asyncHandler, ApiError } from "../../core/errors.js";
+import { authenticate } from "../auth/auth.js";
+import { db } from "../../models/index.js";
+import { audit, requirePermission } from "../../security/authorization.js";
+import { PERMISSIONS } from "../../security/permissions.js";
+import { adminOrder, cancelStudentOrder, createStudentOrder, hasPremiumAccess, listAdminOrders, listStudentOrders, productLifecycle, saveProduct, serializeOrder, serializeProduct, studentOrder, validateProductRelations, verifyOrderPayment } from "./commerce.service.js";
+
+const send = (res, data, status = 200) => res.status(status).json({ data });
+const productIncludes = [{ model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
+const publishedWhere = { status: ["published", "active"], archivedAt: null, [Op.and]: [{ [Op.or]: [{ salesStartAt: null }, { salesStartAt: { [Op.lte]: new Date() } }] }, { [Op.or]: [{ salesEndAt: null }, { salesEndAt: { [Op.gte]: new Date() } }] }] };
+const router = Router();
+
+router.get("/student/lessons/:lessonId/exam-success-pack", authenticate, asyncHandler(async (req, res) => {
+  const lesson = await db.Lesson.findByPk(req.params.lessonId, { include: [db.CourseTrack] }); if (!lesson?.CourseTrack) throw new ApiError(404, "Lesson not found");
+  const enrolled = await db.Enrolment.findOne({ where: { userId: req.user.sub, courseTrackId: lesson.trackId, status: "active" } }); if (!enrolled) throw new ApiError(403, "Course enrollment is required");
+  const product = await db.Product.findOne({ where: { ...publishedWhere, lessonId: lesson.id, courseTrackId: lesson.trackId }, include: productIncludes });
+  if (!product) throw new ApiError(404, "Exam Success Pack is not available for this Lesson");
+  const entitlement = await hasPremiumAccess(req.user.sub, { courseId: product.courseId, courseTrackId: product.courseTrackId, lessonId: product.lessonId });
+  const pending = await db.Order.findOne({ where: { userId: req.user.sub, status: ["pending", "payment_pending", "awaiting_payment"], expiresAt: { [Op.gt]: new Date() } }, include: [{ model: db.OrderItem, where: { productId: product.id }, required: true }] });
+  const premiumCount = await db.LessonSection.count({ where: { lessonId: lesson.id, accessPolicy: ["premium", "paid"], status: "published", isVisible: { [Op.ne]: false } } });
+  send(res, { product: serializeProduct(product, { includeRules: true }), lesson: { id: lesson.id, title: lesson.titleEn || lesson.title }, includedPremiumActivityCount: premiumCount, hasActiveEntitlement: entitlement, pendingOrder: pending ? serializeOrder(pending) : null });
+}));
+router.post("/student/orders", authenticate, asyncHandler(async (req, res) => { const result = await createStudentOrder(req.user.sub, req.body.productId, req.get("Idempotency-Key")); send(res, { order: serializeOrder(result.order), existingPendingOrder: result.existing, paymentPending: true, nextStep: "Online payment will be available in Task 15. This order is awaiting payment." }, result.existing ? 200 : 201); }));
+router.get("/student/orders", authenticate, asyncHandler(async (req, res) => send(res, await listStudentOrders(req.user.sub, req.query))));
+router.get("/student/orders/:orderId", authenticate, asyncHandler(async (req, res) => send(res, await studentOrder(req.user.sub, req.params.orderId))));
+router.post("/student/orders/:orderId/cancel", authenticate, asyncHandler(async (req, res) => send(res, await cancelStudentOrder(req.user.sub, req.params.orderId))));
+router.get("/student/entitlements", authenticate, asyncHandler(async (req, res) => send(res, (await db.Entitlement.findAll({ where: { userId: req.user.sub }, order: [["createdAt", "DESC"]] })).map((row) => ({ id: row.id, entitlementType: row.entitlementType, courseId: row.courseId, courseTrackId: row.courseTrackId, lessonId: row.lessonId, status: row.status, startsAt: row.startsAt, expiresAt: row.endsAt, revokedAt: row.revokedAt })) )));
+
+router.get("/admin/products", authenticate, requirePermission(PERMISSIONS.PRODUCTS_VIEW), asyncHandler(async (req, res) => { const where = Object.fromEntries(["status", "courseId", "courseTrackId", "lessonId", "productType"].filter((key) => req.query[key]).map((key) => [key, req.query[key]])); const rows = await db.Product.findAll({ where, include: productIncludes, order: [["updatedAt", "DESC"]] }); send(res, rows.map((row) => serializeProduct(row, { includeRules: true }))); }));
+router.post("/admin/products", authenticate, requirePermission(PERMISSIONS.PRODUCTS_CREATE), asyncHandler(async (req, res) => { const product = await saveProduct(req.body, req.user); await audit(req, "product_created", "product", product.id, { productType: product.productType }); send(res, serializeProduct(product, { includeRules: true }), 201); }));
+router.get("/admin/products/:id", authenticate, requirePermission(PERMISSIONS.PRODUCTS_VIEW), asyncHandler(async (req, res) => { const product = await db.Product.findByPk(req.params.id, { include: productIncludes }); if (!product) throw new ApiError(404, "Product not found"); send(res, serializeProduct(product, { includeRules: true })); }));
+router.patch("/admin/products/:id", authenticate, requirePermission(PERMISSIONS.PRODUCTS_UPDATE), asyncHandler(async (req, res) => { const product = await saveProduct(req.body, req.user, req.params.id); await audit(req, "product_updated", "product", product.id); send(res, serializeProduct(product, { includeRules: true })); }));
+for (const [action, permission] of [["publish", PERMISSIONS.PRODUCTS_PUBLISH], ["unpublish", PERMISSIONS.PRODUCTS_PUBLISH], ["archive", PERMISSIONS.PRODUCTS_ARCHIVE]]) router.post(`/admin/products/:id/${action}`, authenticate, requirePermission(permission), asyncHandler(async (req, res) => { const product = await productLifecycle(req.params.id, action, req.user); await audit(req, `product_${action}ed`, "product", product.id); send(res, serializeProduct(product, { includeRules: true })); }));
+
+router.get("/admin/orders", authenticate, requirePermission(PERMISSIONS.ORDERS_VIEW), asyncHandler(async (req, res) => send(res, await listAdminOrders(req.query))));
+router.get("/admin/orders/:id", authenticate, requirePermission(PERMISSIONS.ORDERS_VIEW), asyncHandler(async (req, res) => send(res, await adminOrder(req.params.id))));
+router.post("/admin/orders/:id/verify-payment", authenticate, requirePermission(PERMISSIONS.ORDERS_VERIFY_PAYMENT), asyncHandler(async (req, res) => { const result = await verifyOrderPayment(req.params.id, req.user.sub); await audit(req, "order_payment_verified", "order", result.order.id, { idempotent: result.idempotent, entitlementCount: result.entitlements.length }); send(res, { order: serializeOrder(result.order), entitlements: result.entitlements.map((entry) => ({ id: entry.id, lessonId: entry.lessonId, status: entry.status, expiresAt: entry.endsAt })), idempotent: result.idempotent }); }));
+router.post("/admin/orders/:id/cancel", authenticate, requirePermission(PERMISSIONS.ORDERS_MANAGE), asyncHandler(async (req, res) => { const result = await cancelStudentOrder((await db.Order.findByPk(req.params.id))?.userId, req.params.id); await audit(req, "order_cancelled", "order", req.params.id, { byAdmin: true }); send(res, result); }));
+router.get("/admin/entitlements", authenticate, requirePermission(PERMISSIONS.ENTITLEMENTS_VIEW), asyncHandler(async (req, res) => { const rows = await db.Entitlement.findAll({ where: Object.fromEntries(["userId", "courseTrackId", "lessonId", "status"].filter((key) => req.query[key]).map((key) => [key, req.query[key]])), order: [["createdAt", "DESC"]] }); send(res, rows); }));
+router.post("/admin/entitlements", authenticate, requirePermission(PERMISSIONS.ENTITLEMENTS_GRANT), asyncHandler(async (req, res) => { const values = { userId: req.body.studentId, courseId: req.body.courseId, courseTrackId: req.body.courseTrackId, lessonId: req.body.lessonId, entitlementType: "lesson_premium_access" }; if (!values.userId) throw new ApiError(422, "Student is required"); await validateProductRelations({ ...values, productType: "lesson_exam_success_pack", price: "0.00", currency: "LKR" }); const entitlement = await db.Entitlement.create({ ...values, sourceType: "admin", sourceId: crypto.randomUUID(), status: "active", startsAt: new Date(), endsAt: req.body.durationDays ? new Date(Date.now() + Number(req.body.durationDays) * 86400000) : null, grantedBy: req.user.sub }); await audit(req, "entitlement_granted", "entitlement", entitlement.id, { studentId: values.userId }); send(res, entitlement, 201); }));
+router.post("/admin/entitlements/:id/revoke", authenticate, requirePermission(PERMISSIONS.ENTITLEMENTS_REVOKE), asyncHandler(async (req, res) => { const entitlement = await db.Entitlement.findByPk(req.params.id); if (!entitlement) throw new ApiError(404, "Entitlement not found"); await entitlement.update({ status: "revoked", revokedBy: req.user.sub, revokedAt: new Date() }); await audit(req, "entitlement_revoked", "entitlement", entitlement.id); send(res, entitlement); }));
+
+export default router;

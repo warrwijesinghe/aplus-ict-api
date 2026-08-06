@@ -20,18 +20,24 @@ export const createLessonOrder = async (userId, productIds, idempotencyKey) => {
     throw new ApiError(403, "Purchases are unavailable for coming-soon courses");
 
   // Prices come only from active products in MariaDB, never from client input.
-  const total = products.reduce(
-    (sum, product) => sum + Number(product.price),
-    0,
-  );
+  // This compatibility endpoint predates the single-product Exam Success Pack
+  // route; keep its arithmetic decimal-safe by adding integer LKR cents.
+  const toMinor = (value) => { const [whole, fraction = ""] = String(value).split("."); return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0").slice(0, 2)); };
+  const fromMinor = (value) => `${value / 100n}.${String(value % 100n).padStart(2, "0")}`;
+  const totalMinor = products.reduce((sum, product) => sum + toMinor(product.price), 0n);
+  const total = fromMinor(totalMinor);
   return db.sequelize.transaction(async (transaction) => {
     const order = await db.Order.create(
       {
         userId,
         orderNumber: `APL-${Date.now()}-${crypto.randomBytes(2).toString("hex")}`,
+        subtotal: total,
+        discountTotal: "0.00",
         total,
         currency: "LKR",
         idempotencyKey,
+        status: "payment_pending",
+        paymentStatus: "unpaid",
       },
       { transaction },
     );
@@ -41,7 +47,14 @@ export const createLessonOrder = async (userId, productIds, idempotencyKey) => {
         productId: product.id,
         lessonId: product.lessonId,
         name: product.name,
+        productNameSnapshot: product.name,
+        productTypeSnapshot: product.productType || "lesson_exam_success_pack",
+        courseId: product.courseId || product.Lesson?.CourseTrack?.courseId || null,
+        courseTrackId: product.courseTrackId || product.Lesson?.trackId || null,
+        currency: "LKR",
         unitPrice: product.price,
+        quantity: 1,
+        lineTotal: product.price,
       })),
       { transaction },
     );

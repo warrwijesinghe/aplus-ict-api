@@ -46,6 +46,7 @@ import { createQuestionBankRouter } from "./question-bank/question-bank.routes.j
 import { createQuizRouter } from "./quiz/quiz.routes.js";
 import { createQuizAttemptRouter } from "./quiz/quiz-attempt.routes.js";
 import completionGradebookRoutes from "./learning/completion-gradebook.routes.js";
+import commerceRoutes from "./commerce/commerce.routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -118,6 +119,7 @@ router.use(createQuizRouter());
 router.use(createQuizAttemptRouter());
 router.use(completionGradebookRoutes);
 router.use(studentPlayerRoutes);
+router.use(commerceRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));

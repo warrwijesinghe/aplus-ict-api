@@ -14,8 +14,10 @@ import { defineEntitlement } from "./entitlement.model.js";
 import { defineLessonProgress } from "./lesson-progress.model.js";
 import { defineResource } from "./resource.model.js";
 import { defineProduct } from "./product.model.js";
+import { defineProductEntitlementRule } from "./product-entitlement-rule.model.js";
 import { defineOrder } from "./order.model.js";
 import { defineOrderItem } from "./order-item.model.js";
+import { defineOrderStatusHistory } from "./order-status-history.model.js";
 import { definePayment } from "./payment.model.js";
 import { defineGoogleIdentity } from "./google-identity.model.js";
 import { defineStudentProfile } from "./student-profile.model.js";
@@ -52,8 +54,10 @@ export const Entitlement = defineEntitlement(sequelize);
 export const LessonProgress = defineLessonProgress(sequelize);
 export const Resource = defineResource(sequelize);
 export const Product = defineProduct(sequelize);
+export const ProductEntitlementRule = defineProductEntitlementRule(sequelize);
 export const Order = defineOrder(sequelize);
 export const OrderItem = defineOrderItem(sequelize);
+export const OrderStatusHistory = defineOrderStatusHistory(sequelize);
 export const Payment = definePayment(sequelize);
 export const GoogleIdentity = defineGoogleIdentity(sequelize);
 export const StudentProfile = defineStudentProfile(sequelize);
@@ -117,6 +121,8 @@ LessonSection.belongsTo(Topic, { foreignKey: "topicId" });
 Resource.hasMany(LessonSection, { foreignKey: "resourceId" });
 LessonSection.belongsTo(Resource, { foreignKey: "resourceId" });
 Lesson.hasMany(Product, { foreignKey: "lessonId" });
+Course.hasMany(Product, { foreignKey: "courseId" }); Product.belongsTo(Course, { foreignKey: "courseId" });
+CourseTrack.hasMany(Product, { foreignKey: "courseTrackId" }); Product.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
 // Commerce relationships. Entitlements retain IDs to preserve a clear commerce/learning boundary.
 Order.hasMany(OrderItem, { foreignKey: "orderId" });
 Order.hasMany(Payment, { foreignKey: "orderId" });
@@ -126,6 +132,12 @@ Order.belongsTo(User, { foreignKey: "userId" });
 OrderItem.belongsTo(Product, { foreignKey: "productId" });
 OrderItem.belongsTo(Lesson, { foreignKey: "lessonId" });
 Product.belongsTo(Lesson, { foreignKey: "lessonId" });
+Product.hasMany(ProductEntitlementRule, { foreignKey: "productId", as: "EntitlementRules" }); ProductEntitlementRule.belongsTo(Product, { foreignKey: "productId" });
+OrderItem.belongsTo(Order, { foreignKey: "orderId" });
+Order.hasMany(OrderStatusHistory, { foreignKey: "orderId", as: "StatusHistory" }); OrderStatusHistory.belongsTo(Order, { foreignKey: "orderId" });
+Order.hasMany(Entitlement, { foreignKey: "orderId", as: "Entitlements" }); Entitlement.belongsTo(Order, { foreignKey: "orderId" });
+User.hasMany(Entitlement, { foreignKey: "userId" }); Entitlement.belongsTo(User, { foreignKey: "userId" });
+Course.hasMany(Entitlement, { foreignKey: "courseId" }); CourseTrack.hasMany(Entitlement, { foreignKey: "courseTrackId" }); Lesson.hasMany(Entitlement, { foreignKey: "lessonId" });
 User.hasOne(StudentProfile, { foreignKey: "userId" });
 StudentProfile.belongsTo(User, { foreignKey: "userId" });
 User.hasMany(StudentCourseState, { foreignKey: "userId" });
@@ -201,8 +213,10 @@ export const db = {
   LessonProgress,
   Resource,
   Product,
+  ProductEntitlementRule,
   Order,
   OrderItem,
+  OrderStatusHistory,
   Payment,
   GoogleIdentity,
   StudentProfile,
