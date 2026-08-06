@@ -22,6 +22,7 @@ describe("Question Bank validation and security", () => {
     expect(() => validateQuestionDraft({ ...base, defaultMarks: 0 })).toThrow(ApiError);
     expect(() => validateQuestionDraft({ ...base, questionType: "unknown" })).toThrow("Unsupported questionType");
     expect(validateQuestionDraft({ ...base, correctFeedback: "", incorrectFeedback: "" })).toMatchObject({ correctFeedback: null, incorrectFeedback: null });
+    expect(validateQuestionDraft({ ...base, lessonId: "", topicId: "" })).toMatchObject({ lessonId: null, topicId: null });
   });
   it("enforces publish-time option and ordering rules", () => {
     expect(() => assertPublishable({ ...base, Options: [{ optionText: "A", isCorrect: false, sortOrder: 1 }, { optionText: "B", isCorrect: false, sortOrder: 2 }] })).toThrow("Exactly one correct option");

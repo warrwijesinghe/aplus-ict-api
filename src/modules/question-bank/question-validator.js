@@ -8,6 +8,7 @@ const decimal = (value, field, { min = null } = {}) => { if (value === null || v
 export const validateQuestionDraft = (body, current = {}) => {
   const values = {};
   for (const field of ["questionCategoryId", "courseId", "courseTrackId", "lessonId", "topicId", "title", "questionTextFormat", "difficulty", "negativeMarks", "defaultMarks"]) if (has(body, field)) values[field] = body[field];
+  for (const field of ["lessonId", "topicId"]) if (values[field] === "") values[field] = null;
   if (has(body, "questionType")) { getQuestionType(body.questionType); values.questionType = body.questionType; }
   if (has(body, "difficulty") && !QUESTION_DIFFICULTIES.includes(body.difficulty)) throw new ApiError(422, "Invalid difficulty");
   if (has(body, "defaultMarks")) values.defaultMarks = decimal(body.defaultMarks, "defaultMarks", { min: 0.01 });
