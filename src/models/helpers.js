@@ -55,6 +55,9 @@ const tableNames = Object.freeze({
   RolePermission: "role_permissions",
   EducatorAssignment: "educator_assignments",
   AuditLog: "audit_logs",
+  Quiz: "quizzes",
+  QuizQuestion: "quiz_questions",
+  QuizRandomRule: "quiz_random_rules",
   QuizAttempt: "quiz_attempts",
   QuizAttemptQuestion: "quiz_attempt_questions",
   QuizAnswer: "quiz_answers",
@@ -62,6 +65,10 @@ const tableNames = Object.freeze({
   QuizAnswerMatchingItem: "quiz_answer_matching_items",
   QuizAnswerOrderingItem: "quiz_answer_ordering_items",
   QuizGrade: "quiz_grades",
+  ActivityCompletion: "activity_completions",
+  ActivityPrerequisite: "activity_prerequisites",
+  TeacherActivityApproval: "teacher_activity_approvals",
+  TeacherGradeComment: "teacher_grade_comments",
 });
 
 export const defineModel = (sequelize, name, fields, options = {}) =>
