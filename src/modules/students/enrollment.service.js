@@ -30,7 +30,7 @@ export const listEnrollments = async (userId) => {
 
 export const getEnrollment = async (userId, courseTrackId) => {
   const enrollment = await db.Enrolment.findOne({
-    where: { userId, courseTrackId }, include: [{ model: db.CourseTrack, include: trackInclude }],
+    where: { userId, courseTrackId, status: "active" }, include: [{ model: db.CourseTrack, include: trackInclude }],
   });
   return enrollment ? enrollmentView(enrollment) : null;
 };
@@ -47,6 +47,13 @@ export const enrollStudent = async (userId, courseTrackId) => db.sequelize.trans
   if (created) await db.StudentLearningHistory.create({ userId, courseTrackId, eventType: "course_enrolled", occurredAt: new Date(), metadata: { source: "free" } }, { transaction });
   const hydrated = await db.Enrolment.findByPk(enrollment.id, { include: [{ model: db.CourseTrack, include: trackInclude }], transaction });
   return enrollmentView(hydrated);
+});
+
+export const unenrollStudent = async (userId, courseTrackId) => db.sequelize.transaction(async (transaction) => {
+  const enrollment = await db.Enrolment.findOne({ where: { userId, courseTrackId, status: "active" }, transaction });
+  if (!enrollment) throw new ApiError(404, "An active course enrollment was not found");
+  await enrollment.update({ status: "cancelled", unenrolledAt: new Date() }, { transaction });
+  return enrollmentView(enrollment);
 });
 
 export const touchEnrollment = (userId, courseTrackId) =>

@@ -31,7 +31,7 @@ import { accessibleProgress } from "./learning/progress.service.js";
 import { createLessonOrder } from "./orders/order.service.js";
 import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/payment.service.js";
 import { getStudentProfile, saveStudentProfile, requireCompletedProfile } from "./students/student-profile.service.js";
-import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment } from "./students/enrollment.service.js";
+import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment, unenrollStudent } from "./students/enrollment.service.js";
 import { courseState, dashboard, learningHistory } from "./students/student-learning.service.js";
 import { changeAdminEnrolment, listStudents, studentDetail, studentHistory, studentProgress, studentResults, updateAdminEnrolment } from "./students/student-admin.service.js";
 import siteRoutes from "./site/routes.js";
@@ -129,6 +129,8 @@ router.get("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandl
 router.get("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseId))));
 router.post("/student/courses/:courseTrackId/enrol", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseTrackId), 201)));
 router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId), 201)));
+router.delete("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseTrackId))));
+router.delete("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseId))));
 router.get("/student/dashboard", authenticate, asyncHandler(async (req, res) => { await requireCompletedProfile(req.user.sub); send(res, await dashboard(req.user.sub)); }));
 router.get("/student/courses/:courseTrackId/state", authenticate, asyncHandler(async (req, res) => send(res, await courseState(req.user.sub, req.params.courseTrackId))));
 router.get("/student/learning-history", authenticate, asyncHandler(async (req, res) => send(res, await learningHistory(req.user.sub, req.query))));
@@ -203,8 +205,10 @@ const publicTrack = (track) => {
     isPublic: Boolean(track.isPublic ?? track.Course?.isPublic),
     enrolmentOpen: Boolean(track.enrolmentOpen),
     sortOrder: track.sortOrder,
-    syllabusLessonCount:
-      track.availabilityStatus === "coming_soon" ? null : track.Lessons?.length || 0,
+    // A coming-soon course can still publish its syllabus. Its availability
+    // status controls enrolment and lesson delivery, not whether students can
+    // see the published lesson outline.
+    syllabusLessonCount: track.Lessons?.length || 0,
     freeContentCount,
     paidContentCount,
     // These aliases preserve the existing web client contract while its labels
@@ -398,7 +402,9 @@ router.get(
     if (!track) throw new ApiError(404, "Course track not found");
     send(res, {
       ...publicTrack(track),
-      lessons: track.availabilityStatus === "coming_soon" ? [] : (track.Lessons || []).map(publicLesson),
+      // Keep the syllabus available for coming-soon tracks. Individual lesson
+      // delivery remains restricted to active tracks by the lesson endpoint.
+      lessons: (track.Lessons || []).map(publicLesson),
     });
   }),
 );

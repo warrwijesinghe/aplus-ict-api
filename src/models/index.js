@@ -230,6 +230,8 @@ export const db = {
   PaymentProviderEvent,
   GoogleIdentity,
   StudentProfile,
+  StudentCourseState,
+  StudentLearningHistory,
   Role,
   Permission,
   UserRole,

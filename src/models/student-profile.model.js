@@ -6,8 +6,12 @@ export const defineStudentProfile = (sequelize) =>
   defineModel(sequelize, "StudentProfile", {
     userId: { type: DataTypes.UUID, allowNull: false, unique: true },
     fullName: DataTypes.STRING,
+    dateOfBirth: DataTypes.DATEONLY,
+    address: DataTypes.TEXT,
+    city: DataTypes.STRING,
     mobileNumber: DataTypes.STRING,
     whatsAppNumber: DataTypes.STRING,
+    gender: DataTypes.STRING,
     examYear: DataTypes.INTEGER,
     schoolName: DataTypes.STRING,
     district: DataTypes.STRING,
