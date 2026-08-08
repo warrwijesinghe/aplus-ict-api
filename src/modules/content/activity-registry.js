@@ -3,7 +3,7 @@ export { ACTIVITY_TYPES } from "./activities/activity-types.js";
 export const ACCESS_POLICIES = Object.freeze(["free", "premium"]);
 export const COMPLETION_MODES = Object.freeze(["none", "view", "manual", "submit", "pass"]);
 export const CONTENT_STATUSES = Object.freeze(["draft", "published", "archived"]);
-export const TRACK_AVAILABILITY = Object.freeze(["active", "coming_soon", "paused", "archived"]);
+export const TRACK_AVAILABILITY = Object.freeze(["active", "inactive"]);
 
 // Temporary compatibility for records created before Task 03. Never emit this
 // value from new APIs, but treat it as premium while migrations are deployed.

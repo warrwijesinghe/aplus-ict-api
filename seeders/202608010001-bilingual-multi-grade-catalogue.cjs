@@ -152,9 +152,9 @@ module.exports = {
           title: `${titleEn} - ${mediumName}`,
           slug: trackSlug,
           status: "published",
-          availabilityStatus: isAl ? "active" : "coming_soon",
+          availabilityStatus: "active",
           isPublic: true,
-          enrolmentOpen: isAl,
+          enrolmentOpen: true,
           sortOrder: sortOrder * 10 + mediumSort,
           updatedAt: now,
         };

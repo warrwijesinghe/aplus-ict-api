@@ -12,12 +12,8 @@ export const createLessonOrder = async (userId, productIds, idempotencyKey) => {
     include: [{ model: db.Lesson, include: [db.CourseTrack] }],
   });
   if (!products.length) throw new ApiError(422, "No valid products");
-  if (
-    products.some(
-      (product) => product.Lesson?.CourseTrack?.availabilityStatus === "coming_soon",
-    )
-  )
-    throw new ApiError(403, "Purchases are unavailable for coming-soon courses");
+  if (products.some((product) => product.Lesson?.CourseTrack?.availabilityStatus !== "active"))
+    throw new ApiError(403, "Purchases are unavailable for inactive course tracks");
 
   // Prices come only from active products in MariaDB, never from client input.
   // This compatibility endpoint predates the single-product Exam Success Pack

@@ -43,6 +43,11 @@ export const profileInput = (body = {}) => {
 export const getStudentProfile = async (userId) => profileView(await db.StudentProfile.findOne({ where: { userId } }));
 
 export const requireCompletedProfile = async (userId) => {
+  // Student profile details are only collected from student accounts. Staff
+  // accounts can enrol and use a course without a student-profile record.
+  const user = await db.User.findByPk(userId, { attributes: ["id", "role"] });
+  if (!user) throw new ApiError(401, "Account is unavailable");
+  if (user.role !== "student") return null;
   const profile = await db.StudentProfile.findOne({ where: { userId } });
   if (!profileComplete(profile)) throw new ApiError(403, "Complete your student profile before using this learning workflow", { code: "PROFILE_INCOMPLETE" });
   return profile;

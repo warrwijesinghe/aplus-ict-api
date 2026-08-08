@@ -203,11 +203,10 @@ const publicTrack = (track) => {
     availabilityStatus: track.availabilityStatus || "active",
     isFeatured: Boolean(track.Course?.isFeatured),
     isPublic: Boolean(track.isPublic ?? track.Course?.isPublic),
-    enrolmentOpen: Boolean(track.enrolmentOpen),
+    enrolmentOpen: track.availabilityStatus !== "inactive",
     sortOrder: track.sortOrder,
-    // A coming-soon course can still publish its syllabus. Its availability
-    // status controls enrolment and lesson delivery, not whether students can
-    // see the published lesson outline.
+    // Active published tracks expose their published syllabus and can be
+    // enrolled in. Inactive tracks are not publicly listed.
     syllabusLessonCount: track.Lessons?.length || 0,
     freeContentCount,
     paidContentCount,
@@ -229,7 +228,7 @@ const publicCourseInclude = () => [
 ];
 
 const publicTrackWhere = (query) => {
-  const where = { status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } };
+  const where = { status: "published", isPublic: true, availabilityStatus: "active" };
   const academicLevel = query.academicLevel || query.level;
   const allowedAreas = new Set(["AL", "OL", "SCHOOL"]);
   const allowedMedia = new Set(["sinhala", "english"]);
@@ -239,7 +238,7 @@ const publicTrackWhere = (query) => {
     throw new ApiError(422, "Invalid grade filter");
   if (query.medium && !allowedMedia.has(query.medium))
     throw new ApiError(422, "Invalid medium filter");
-  if (query.availability && !["active", "coming_soon", "paused", "archived"].includes(query.availability)) throw new ApiError(422, "Invalid availability filter");
+  if (query.availability && query.availability !== "active") throw new ApiError(422, "Only active tracks are available publicly");
   if (query.featured && !["true", "false"].includes(query.featured)) throw new ApiError(422, "Invalid featured filter");
   if (query.availability) where.availabilityStatus = query.availability;
   if (query.medium) where["$Medium.code$"] = query.medium;
@@ -384,7 +383,7 @@ router.get(
   "/public/courses/:slug",
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
-      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } },
+      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: "active" },
       include: publicCourseInclude(),
     });
     if (!track) throw new ApiError(404, "Course track not found");
@@ -395,7 +394,7 @@ router.get(
   "/public/courses/:slug/curriculum",
   asyncHandler(async (req, res) => {
     const track = await db.CourseTrack.findOne({
-      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: { [Op.in]: ["active", "coming_soon"] } },
+      where: { slug: req.params.slug, status: "published", isPublic: true, availabilityStatus: "active" },
       include: publicCourseInclude(),
       order: [[db.Lesson, "sortOrder", "ASC"]],
     });
@@ -582,8 +581,8 @@ router.patch(
       include: [{ model: db.CourseTrack }],
     });
     if (!lesson) throw new ApiError(404, "Lesson not found");
-    if (lesson.CourseTrack?.availabilityStatus === "coming_soon")
-      throw new ApiError(403, "Progress is unavailable for a coming-soon course");
+    if (lesson.CourseTrack?.availabilityStatus !== "active")
+      throw new ApiError(403, "Progress is unavailable for an inactive course track");
     // Clamp client input; completion is derived from the stored percentage.
     const percentage = Math.max(
       0,
@@ -714,8 +713,8 @@ router.post(
     const lesson = await db.Lesson.findByPk(section.lessonId, {
       include: [{ model: db.CourseTrack }],
     });
-    if (lesson?.CourseTrack?.availabilityStatus === "coming_soon")
-      throw new ApiError(403, "Progress is unavailable for a coming-soon course");
+    if (lesson?.CourseTrack?.availabilityStatus !== "active")
+      throw new ApiError(403, "Progress is unavailable for an inactive course track");
     if (!(await canAccessContent(req.user.sub, lesson, section)))
       throw new ApiError(403, "Premium content access required");
     if (section.completionMode !== "manual")

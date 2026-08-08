@@ -1,7 +1,7 @@
 import { ApiError } from "../src/core/errors.js";
 import request from "supertest";
 import { app } from "../src/app.js";
-import { ACTIVITY_TYPES, ACCESS_POLICIES, COMPLETION_MODES } from "../src/modules/content/activity-registry.js";
+import { ACTIVITY_TYPES, ACCESS_POLICIES, COMPLETION_MODES, TRACK_AVAILABILITY } from "../src/modules/content/activity-registry.js";
 import { safeActivity } from "../src/modules/content/content.service.js";
 import { validateContentPayload, validateAvailability, validateSlug } from "../src/modules/content/content-validation.js";
 import { validateActivityResource } from "../src/modules/content/activities/activity-validator.js";
@@ -20,12 +20,15 @@ describe("LMS content architecture", () => {
     expect(ACTIVITY_TYPES).toEqual(expect.arrayContaining(["label", "page", "video", "assignment", "quiz"]));
     expect(ACCESS_POLICIES).toEqual(["free", "premium"]);
     expect(COMPLETION_MODES).toEqual(["none", "view", "manual", "submit", "pass"]);
+    expect(TRACK_AVAILABILITY).toEqual(["active", "inactive"]);
   });
 
   it("rejects invalid content input", () => {
     expect(() => validateContentPayload({ type: "unknown" }, "activity")).toThrow(ApiError);
     expect(() => validateContentPayload({ completionMode: "later" }, "activity")).toThrow("Invalid completionMode");
     expect(() => validateContentPayload({ accessPolicy: "paid" }, "activity")).toThrow("Invalid accessPolicy");
+    expect(() => validateContentPayload({ availabilityStatus: "coming_soon" }, "track")).toThrow("Invalid availabilityStatus");
+    expect(() => validateContentPayload({ availabilityStatus: "inactive" }, "track")).not.toThrow();
     expect(() => validateAvailability({ availableFrom: "2026-08-06", availableUntil: "2026-08-05" })).toThrow("availableUntil");
     expect(() => validateContentPayload({ maxScore: 5, passingScore: 6 }, "activity")).toThrow("passingScore");
     expect(() => validateContentPayload({ youtubeUrl: "https://vimeo.com/1" }, "activity")).toThrow("approved YouTube");

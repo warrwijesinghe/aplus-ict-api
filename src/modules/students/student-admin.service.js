@@ -43,7 +43,7 @@ const studentDetailView = async (student, enrolments, studentId) => ({ id: stude
 
 export const updateAdminEnrolment = async (user, studentId, body) => db.sequelize.transaction(async (transaction) => {
   const track = await db.CourseTrack.findByPk(body.courseTrackId, { include: [db.Course, db.Medium], transaction });
-  if (!track || track.status !== "published" || track.availabilityStatus !== "active") throw new ApiError(422, "A published active Medium is required");
+  if (!track || track.status !== "published" || track.availabilityStatus !== "active") throw new ApiError(422, "An active published course track is required");
   await studentScope(user, studentId, track.id, "canViewStudents");
   const source = body.enrolmentType === "free" ? "free" : "manual";
   const [entry, created] = await db.Enrolment.findOrCreate({ where: { userId: studentId, courseTrackId: track.id }, defaults: { userId: studentId, courseTrackId: track.id, status: "active", source, enrolledAt: new Date(), createdByUserId: user.sub }, transaction });

@@ -26,7 +26,7 @@ Activities have `free` or `premium` access, and completion modes `none`, `view`,
 
 ## Publishing and protection
 
-Lessons, Topics, and Activities support `draft`, `published`, and `archived`, visibility, and optional availability windows. Public learning responses include only published, visible, currently available descendants of public active tracks. A `coming_soon` Medium exposes its published syllabus metadata, but not individual lesson delivery, enrolment, or purchasable content. Paused and archived tracks are not public.
+Lessons, Topics, and Activities support `draft`, `published`, and `archived`, visibility, and optional availability windows. Public learning responses include only published, visible, currently available descendants of public active tracks. Course tracks use `active` or `inactive` availability; an active published track exposes its syllabus, supports enrolment, and delivers its published lesson content.
 
 Unauthorised requests receive premium activity metadata with `isLocked: true`, but never the content body, video/external URL, Resource ID, configuration, instructions, scores, or storage details. Entitlement is checked by the API. Resources are not deleted when an activity is removed.
 

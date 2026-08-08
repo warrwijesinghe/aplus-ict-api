@@ -11,7 +11,10 @@ export const defineCourseTrack = (sequelize) =>
       defaultValue: "draft",
     },
     availabilityStatus: {
-      type: DataTypes.ENUM("coming_soon", "active", "paused", "archived"),
+      // Delivery is controlled by the published lifecycle status above. This
+      // operational flag only decides whether a published track is available
+      // to students.
+      type: DataTypes.ENUM("active", "inactive"),
       defaultValue: "active",
     },
     isPublic: { type: DataTypes.BOOLEAN, defaultValue: false },

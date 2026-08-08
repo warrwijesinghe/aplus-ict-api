@@ -7,7 +7,9 @@ const trackInclude = [
   db.Medium,
 ];
 
-const enrollmentWhere = { status: "published", isPublic: true, availabilityStatus: "active", enrolmentOpen: true };
+// A published, active course track is enrollable. `enrolmentOpen` is retained
+// in the database for legacy records but is no longer a separate gate.
+const enrollmentWhere = { status: "published", isPublic: true, availabilityStatus: "active" };
 
 export const enrollmentView = (enrollment) => ({
   id: enrollment.id, courseTrackId: enrollment.courseTrackId, status: enrollment.status, enrolmentType: enrollment.source === "manual" ? "admin" : enrollment.source, enrolledAt: enrollment.enrolledAt, unenrolledAt: enrollment.unenrolledAt || null, lastAccessedAt: enrollment.lastAccessedAt || null,
@@ -36,9 +38,11 @@ export const getEnrollment = async (userId, courseTrackId) => {
 };
 
 export const enrollStudent = async (userId, courseTrackId) => db.sequelize.transaction(async (transaction) => {
+  // `requireCompletedProfile` applies only to student accounts, so staff and
+  // administrator accounts can self-enrol as well.
   await requireCompletedProfile(userId);
   const track = await db.CourseTrack.findOne({ where: { id: courseTrackId, ...enrollmentWhere }, include: trackInclude, transaction });
-  if (!track) throw new ApiError(404, "An open published course was not found");
+  if (!track) throw new ApiError(404, "An active published course was not found");
   const [enrollment, created] = await db.Enrolment.findOrCreate({
     where: { userId, courseTrackId }, defaults: { userId, courseTrackId, status: "active", source: "free", enrolledAt: new Date(), lastAccessedAt: new Date() }, transaction,
   });
