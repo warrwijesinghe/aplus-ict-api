@@ -15,12 +15,12 @@ const money = (value, field = "price") => {
 const amount = (minor) => `${minor / 100n}.${String(minor % 100n).padStart(2, "0")}`;
 const now = () => new Date();
 const isPublished = (product, date = now()) => ["published", "active"].includes(product.status) && !product.archivedAt && (!product.salesStartAt || new Date(product.salesStartAt) <= date) && (!product.salesEndAt || new Date(product.salesEndAt) >= date);
-const productIncludes = [{ model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
+const productIncludes = [{ model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug", "lessonNumber"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
 
 export const serializeProduct = (product, { includeRules = false } = {}) => ({
   id: product.id, productType: product.productType, name: product.name, slug: product.slug, shortDescription: product.shortDescription, description: product.description,
   status: product.status, currency: product.currency, price: product.price, compareAtPrice: product.compareAtPrice, courseId: product.courseId, courseTrackId: product.courseTrackId, lessonId: product.lessonId,
-  course: product.Course && { id: product.Course.id, title: product.Course.titleEn || product.Course.title }, medium: product.CourseTrack?.Medium && { id: product.CourseTrack.Medium.id, name: product.CourseTrack.Medium.nameEn || product.CourseTrack.Medium.name }, lesson: product.Lesson && { id: product.Lesson.id, title: product.Lesson.titleEn || product.Lesson.title, slug: product.Lesson.slug },
+  course: product.Course && { id: product.Course.id, title: product.Course.titleEn || product.Course.title }, medium: product.CourseTrack?.Medium && { id: product.CourseTrack.Medium.id, name: product.CourseTrack.Medium.nameEn || product.CourseTrack.Medium.name }, lesson: product.Lesson && { id: product.Lesson.id, title: product.Lesson.titleEn || product.Lesson.title, slug: product.Lesson.slug, lessonNumber: product.Lesson.lessonNumber },
   entitlementDurationDays: product.entitlementDurationDays, salesStartAt: product.salesStartAt, salesEndAt: product.salesEndAt, publishedAt: product.publishedAt, archivedAt: product.archivedAt,
   ...(includeRules ? { entitlementRules: (product.EntitlementRules || []).map((rule) => ({ id: rule.id, entitlementType: rule.entitlementType, courseId: rule.courseId, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, activityId: rule.activityId, durationDays: rule.durationDays })) } : {}),
 });

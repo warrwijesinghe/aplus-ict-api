@@ -182,6 +182,7 @@ DownloadableResource.belongsTo(Resource, { foreignKey: "resourceId" });
 Resource.hasMany(ResourceLink, { foreignKey: "resourceId", as: "Links" });
 ResourceLink.belongsTo(Resource, { foreignKey: "resourceId" });
 Resource.belongsTo(Resource, { foreignKey: "replacedByResourceId", as: "Replacement" });
+Lesson.belongsTo(Resource, { foreignKey: "tutorialImageResourceId", as: "TutorialImage" });
 Course.hasMany(QuestionCategory, { foreignKey: "courseId" }); QuestionCategory.belongsTo(Course, { foreignKey: "courseId" });
 CourseTrack.hasMany(QuestionCategory, { foreignKey: "courseTrackId" }); QuestionCategory.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
 Lesson.hasMany(QuestionCategory, { foreignKey: "lessonId" }); QuestionCategory.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(QuestionCategory, { foreignKey: "topicId" }); QuestionCategory.belongsTo(Topic, { foreignKey: "topicId" });

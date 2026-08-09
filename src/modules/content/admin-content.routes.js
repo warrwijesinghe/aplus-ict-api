@@ -51,7 +51,7 @@ const scopedList = async (req, Model, kind) => {
 const fields = {
   course: ["categoryId", "academicLevelId", "title", "titleEn", "titleSi", "slug", "code", "courseGroup", "academicLevel", "description", "shortDescriptionEn", "shortDescriptionSi", "status", "sortOrder", "isFeatured", "isPublic", "publishedAt"],
   track: ["courseId", "mediumId", "title", "slug", "status", "availabilityStatus", "isPublic", "enrolmentOpen", "sortOrder", "publishedAt"],
-  lesson: ["trackId", "title", "titleEn", "titleSi", "slug", "lessonNumber", "estimatedPeriods", "estimatedMinutes", "summary", "descriptionEn", "descriptionSi", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder", "publishedAt"],
+  lesson: ["trackId", "title", "titleEn", "titleSi", "slug", "lessonNumber", "estimatedPeriods", "estimatedMinutes", "summary", "descriptionEn", "descriptionSi", "tutorialImageResourceId", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder", "publishedAt"],
   topic: ["lessonId", "slug", "title", "titleEn", "titleSi", "descriptionEn", "descriptionSi", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder"],
   activity: ["lessonId", "topicId", "type", "title", "titleEn", "titleSi", "descriptionEn", "descriptionSi", "instructions", "accessPolicy", "completionMode", "estimatedMinutes", "content", "youtubeUrl", "externalUrl", "resourceId", "config", "configVersion", "maxScore", "passingScore", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder"],
 };

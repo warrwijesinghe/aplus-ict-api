@@ -15,7 +15,9 @@ export const defineStudentProfile = (sequelize) =>
     examYear: DataTypes.INTEGER,
     schoolName: DataTypes.STRING,
     district: DataTypes.STRING,
-    preferredMedium: DataTypes.ENUM("sinhala", "english"),
+    // This controls the language used for student communications only.
+    // It never constrains the mediums a student can browse or enrol in.
+    preferredMedium: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "sinhala" },
     town: DataTypes.STRING,
     guardianContactNumber: DataTypes.STRING,
     referralSource: DataTypes.STRING,

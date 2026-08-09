@@ -5,6 +5,11 @@ import { hasCourseAssignment, privilegedRoles } from "../../security/authorizati
 import { entitledLessonIds } from "../commerce/commerce.service.js";
 
 export const PREREQUISITE_COMBINATION = "all";
+const selfPacedPrerequisiteTypes = new Set([
+  "complete_previous_activity",
+  "pass_previous_quiz",
+  "complete_previous_topic",
+]);
 const now = () => new Date();
 const title = (row) => row?.titleEn || row?.title || "this activity";
 const active = { status: "published", isVisible: { [Op.ne]: false } };
@@ -61,6 +66,12 @@ export const accessState = async (userId, activityId, transaction) => {
   const unmetRequirements = [];
   if (premiumLocked(activity, entitled)) unmetRequirements.push({ type: "premium", message: "Exam Success Pack access is required." });
   for (const rule of rules) {
+    // Learning is self-paced: students can start any lesson, topic, or free
+    // activity without finishing the preceding one. Explicit requirements
+    // (premium access, dates, teacher approval, and specifically selected
+    // prerequisite targets) remain available for content that genuinely needs
+    // them.
+    if (selfPacedPrerequisiteTypes.has(rule.prerequisiteType)) continue;
     let met = true; let message = null; let target = null;
     if (rule.prerequisiteType === "available_after_date") { met = Boolean(rule.availableAfter && new Date(rule.availableAfter) <= now()); message = `Available from ${new Date(rule.availableAfter).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`; }
     else if (rule.prerequisiteType === "teacher_approval") { met = approvals.length > 0; message = "Teacher approval is required."; }

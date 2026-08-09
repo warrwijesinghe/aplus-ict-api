@@ -14,6 +14,9 @@ export const defineLesson = (sequelize) =>
     summary: DataTypes.TEXT,
     descriptionEn: DataTypes.TEXT,
     descriptionSi: DataTypes.TEXT,
+    // The printed tutorial cover selected for this lesson in the content admin.
+    // It is intentionally separate from lesson activity images.
+    tutorialImageResourceId: DataTypes.UUID,
     estimatedMinutes: DataTypes.INTEGER,
     accessPolicy: {
       type: DataTypes.ENUM("free", "paid"),

@@ -177,7 +177,7 @@ export const authRoutes = (router) => {
             { transaction },
           );
           await db.StudentProfile.create(
-            { userId: currentUser.id },
+            { userId: currentUser.id, preferredMedium: "sinhala" },
             { transaction },
           );
           const studentRole = await db.Role.findOne({

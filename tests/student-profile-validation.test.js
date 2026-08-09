@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@jest/globals";
-import { profileInput } from "../src/modules/students/student-profile.service.js";
+import { profileInput, profileView } from "../src/modules/students/student-profile.service.js";
 
 describe("student profile input", () => {
   it("accepts a Sri Lankan student profile and normalizes phone input", () => {
@@ -15,5 +15,9 @@ describe("student profile input", () => {
     expect(() => profileInput({ preferredMedium: "tamil" })).toThrow("sinhala or english");
     expect(() => profileInput({ dateOfBirth: "2030-01-01" })).toThrow("dateOfBirth");
     expect(() => profileInput({ gender: "unknown" })).toThrow("gender");
+  });
+
+  it("defaults the communication language to Sinhala when a legacy profile has none", () => {
+    expect(profileView({})).toMatchObject({ preferredMedium: "sinhala" });
   });
 });

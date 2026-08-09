@@ -13,7 +13,7 @@ export const profileComplete = (profile) => Boolean(profile && required.every((f
 export const profileView = (profile) => {
   if (!profile) return { profileStatus: "incomplete", isComplete: false, completedAt: null };
   const values = profile.toJSON ? profile.toJSON() : profile;
-  return { id: values.id, fullName: values.fullName || "", dateOfBirth: values.dateOfBirth || "", address: values.address || "", city: values.city || "", mobileNumber: values.mobileNumber || "", whatsAppNumber: values.whatsAppNumber || "", schoolName: values.schoolName || "", gender: values.gender || "", district: values.district || "", gradeOrExamYear: values.examYear || null, examYear: values.examYear || null, preferredMedium: values.preferredMedium || "", guardianContactNumber: values.guardianContactNumber || "", referralSource: values.referralSource || "", town: values.town || "", profileStatus: profileComplete(values) ? "complete" : "incomplete", isComplete: profileComplete(values), completedAt: values.completedAt || null, createdAt: values.createdAt, updatedAt: values.updatedAt };
+  return { id: values.id, fullName: values.fullName || "", dateOfBirth: values.dateOfBirth || "", address: values.address || "", city: values.city || "", mobileNumber: values.mobileNumber || "", whatsAppNumber: values.whatsAppNumber || "", schoolName: values.schoolName || "", gender: values.gender || "", district: values.district || "", gradeOrExamYear: values.examYear || null, examYear: values.examYear || null, preferredMedium: values.preferredMedium || "sinhala", guardianContactNumber: values.guardianContactNumber || "", referralSource: values.referralSource || "", town: values.town || "", profileStatus: profileComplete(values) ? "complete" : "incomplete", isComplete: profileComplete(values), completedAt: values.completedAt || null, createdAt: values.createdAt, updatedAt: values.updatedAt };
 };
 
 export const profileInput = (body = {}) => {
@@ -56,7 +56,7 @@ export const requireCompletedProfile = async (userId) => {
 export const saveStudentProfile = async (userId, body) => {
   const values = profileInput(body);
   if (values.preferredMedium && !(await db.Medium.findOne({ where: { code: values.preferredMedium, isActive: true } }))) throw new ApiError(422, "preferredMedium must be an active Medium");
-  const [profile, created] = await db.StudentProfile.findOrCreate({ where: { userId }, defaults: values });
+  const [profile, created] = await db.StudentProfile.findOrCreate({ where: { userId }, defaults: { ...values, preferredMedium: values.preferredMedium || "sinhala" } });
   if (!created) await profile.update(values);
   const complete = profileComplete(profile);
   await profile.update({ profileStatus: complete ? "complete" : "incomplete", completedAt: complete ? profile.completedAt || new Date() : null });

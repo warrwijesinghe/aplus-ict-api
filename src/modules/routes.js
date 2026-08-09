@@ -158,7 +158,7 @@ const contentCounts = (lesson) => {
 
 const publicProduct = (lesson) => {
   const product = (lesson.Products || []).find(
-    (candidate) => candidate.status === "active",
+    (candidate) => ["active", "published"].includes(candidate.status),
   );
   if (!product) return null;
 
@@ -257,6 +257,7 @@ const publicLesson = (lesson) => {
     lessonNumber: lesson.lessonNumber,
     title: lesson.title,
     shortDescription: lesson.summary,
+    tutorialImageResourceId: lesson.tutorialImageResourceId || null,
     estimatedPeriods: lesson.estimatedPeriods,
     displayOrder: lesson.sortOrder,
     hasFreeContent: freeContentCount > 0,
@@ -291,7 +292,7 @@ const publishedLessonInclude = () => ({
     },
     {
       model: db.Product,
-      where: { status: "active" },
+      where: { status: ["active", "published"] },
       required: false,
     },
     {
@@ -420,7 +421,7 @@ router.get(
       where: { trackId: track.id, slug: req.params.lessonSlug, ...publishedWhere() },
       include: [
         { model: db.LessonSection, where: publishedWhere(), required: false, include: [{ model: db.Topic, where: publishedWhere(), required: false }] },
-        { model: db.Product, where: { status: "active" }, required: false },
+        { model: db.Product, where: { status: ["active", "published"] }, required: false },
       ],
     });
     if (!lesson) throw new ApiError(404, "Lesson not found");

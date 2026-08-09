@@ -17,14 +17,18 @@ export const canViewResource = async (user, resource) => {
   if (isAdmin(user)) return true;
   if (resource.accessPolicy === "authenticated") return true;
   if (resource.accessPolicy === "owner_only") return resource.uploadedByUserId === user.sub || resource.ownerUserId === user.sub;
-  const activities = await db.LessonSection.findAll({ where: { resourceId: resource.id }, include: [db.Lesson] });
-  if (!activities.length) return canManageResource(user, resource);
+  const [activities, tutorialLessons] = await Promise.all([
+    db.LessonSection.findAll({ where: { resourceId: resource.id }, include: [db.Lesson] }),
+    db.Lesson.findAll({ where: { tutorialImageResourceId: resource.id } }),
+  ]);
+  if (!activities.length && !tutorialLessons.length) return canManageResource(user, resource);
   for (const activity of activities) if (await canAccessContent(user.sub, activity.Lesson, activity)) return true;
   if (resource.accessPolicy === "course_enrolled") {
-    const lessonIds = activities.map((activity) => activity.lessonId).filter(Boolean);
-    const lesson = lessonIds.length && await db.Lesson.findByPk(lessonIds[0]);
-    const trackId = lesson?.trackId;
-    return Boolean(trackId && await db.Enrolment.findOne({ where: { userId: user.sub, courseTrackId: trackId, status: "active" } }));
+    const trackIds = [...new Set([
+      ...activities.map((activity) => activity.Lesson?.trackId),
+      ...tutorialLessons.map((lesson) => lesson.trackId),
+    ].filter(Boolean))];
+    return Boolean(trackIds.length && await db.Enrolment.findOne({ where: { userId: user.sub, courseTrackId: trackIds, status: "active" } }));
   }
   return false;
 };
