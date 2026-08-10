@@ -175,8 +175,11 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
     const quiz = await db.Quiz.findOne({ where: { lessonSectionId: detail.id }, attributes: ["id"], transaction });
     current.quizId = quiz?.id || null;
   }
-  const previous = player.activityRows.slice(0, currentIndex).reverse().find((item) => !item.isLocked);
-  const next = player.activityRows.slice(currentIndex + 1).find((item) => !item.isLocked);
+  // Previous/Next follows the published lesson plan, including locked items.
+  // A locked activity has its own unlock state in the player; silently skipping
+  // it made learners jump into a later lesson without seeing the next item.
+  const previous = player.activityRows[currentIndex - 1] || null;
+  const next = player.activityRows[currentIndex + 1] || null;
   const updatedRows = player.activityRows.map((item) => item.activity.id === row.activity.id ? { ...item, progress: freshProgress } : item);
   return {
     course: courseIdentity(player.track),
