@@ -175,11 +175,13 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
     const quiz = await db.Quiz.findOne({ where: { lessonSectionId: detail.id }, attributes: ["id"], transaction });
     current.quizId = quiz?.id || null;
   }
-  // Previous/Next follows the published lesson plan, including locked items.
-  // A locked activity has its own unlock state in the player; silently skipping
-  // it made learners jump into a later lesson without seeing the next item.
-  const previous = player.activityRows[currentIndex - 1] || null;
-  const next = player.activityRows[currentIndex + 1] || null;
+  // Activity navigation is intentionally constrained to the current lesson.
+  // The last activity (such as a final quiz) should conclude the lesson rather
+  // than taking the learner directly into the first activity of the next one.
+  const candidatePrevious = player.activityRows[currentIndex - 1] || null;
+  const previous = candidatePrevious?.activity.lessonId === row.activity.lessonId ? candidatePrevious : null;
+  const candidateNext = player.activityRows[currentIndex + 1] || null;
+  const next = candidateNext?.activity.lessonId === row.activity.lessonId ? candidateNext : null;
   const updatedRows = player.activityRows.map((item) => item.activity.id === row.activity.id ? { ...item, progress: freshProgress } : item);
   return {
     course: courseIdentity(player.track),

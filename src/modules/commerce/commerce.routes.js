@@ -6,7 +6,7 @@ import { authenticate } from "../auth/auth.js";
 import { db } from "../../models/index.js";
 import { audit, requirePermission } from "../../security/authorization.js";
 import { PERMISSIONS } from "../../security/permissions.js";
-import { adminOrder, cancelStudentOrder, createStudentOrder, hasPremiumAccess, listAdminOrders, listStudentOrders, productLifecycle, saveProduct, serializeOrder, serializeProduct, studentOrder, validateProductRelations, verifyOrderPayment } from "./commerce.service.js";
+import { adminOrder, cancelStudentOrder, createStudentOrder, hasPremiumAccess, listAdminOrders, listStudentOrders, productLifecycle, saveProduct, serializeOrder, serializeProduct, studentOrder, submitStudentBankDeposit, submitStudentBankTransfer, validateProductRelations, verifyOrderPayment } from "./commerce.service.js";
 
 const send = (res, data, status = 200) => res.status(status).json({ data });
 const productIncludes = [{ model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
@@ -26,6 +26,8 @@ router.get("/student/lessons/:lessonId/exam-success-pack", authenticate, asyncHa
 router.post("/student/orders", authenticate, asyncHandler(async (req, res) => { const result = await createStudentOrder(req.user.sub, req.body.productId, req.get("Idempotency-Key")); send(res, { order: serializeOrder(result.order), existingPendingOrder: result.existing, paymentPending: true, nextStep: "Online payment will be available in Task 15. This order is awaiting payment." }, result.existing ? 200 : 201); }));
 router.get("/student/orders", authenticate, asyncHandler(async (req, res) => send(res, await listStudentOrders(req.user.sub, req.query))));
 router.get("/student/orders/:orderId", authenticate, asyncHandler(async (req, res) => send(res, await studentOrder(req.user.sub, req.params.orderId))));
+router.post("/student/orders/:orderId/bank-deposit", authenticate, asyncHandler(async (req, res) => send(res, await submitStudentBankDeposit(req.user.sub, req.params.orderId))));
+router.post("/student/orders/:orderId/bank-transfer", authenticate, asyncHandler(async (req, res) => send(res, await submitStudentBankTransfer(req.user.sub, req.params.orderId))));
 router.post("/student/orders/:orderId/cancel", authenticate, asyncHandler(async (req, res) => send(res, await cancelStudentOrder(req.user.sub, req.params.orderId))));
 router.get("/student/entitlements", authenticate, asyncHandler(async (req, res) => send(res, (await db.Entitlement.findAll({ where: { userId: req.user.sub }, order: [["createdAt", "DESC"]] })).map((row) => ({ id: row.id, entitlementType: row.entitlementType, courseId: row.courseId, courseTrackId: row.courseTrackId, lessonId: row.lessonId, status: row.status, startsAt: row.startsAt, expiresAt: row.endsAt, revokedAt: row.revokedAt })) )));
 

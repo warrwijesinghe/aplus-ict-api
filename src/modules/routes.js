@@ -303,7 +303,7 @@ const publishedLessonInclude = () => ({
   ],
 });
 
-const safeLearningContent = (section, isUnlocked, progress) => {
+const safeLearningContent = (section, isUnlocked, progress, quizId = null) => {
   const isLocked = sectionAccessPolicy(section) === "premium" && !isUnlocked;
   return {
     id: section.id,
@@ -322,6 +322,7 @@ const safeLearningContent = (section, isUnlocked, progress) => {
     progress: progress || { status: "not_started" },
     // Content bodies and URLs are only returned once the server grants access.
     ...(isLocked ? {} : { content: section.content, youtubeUrl: section.youtubeUrl, externalUrl: section.externalUrl, resourceId: section.resourceId, config: section.config, instructions: section.instructions }),
+    ...(section.type === "quiz" && quizId ? { quizId } : {}),
   };
 };
 
@@ -338,6 +339,15 @@ const lessonTopics = async (lesson, userId) => {
     userId ? canAccessLesson(userId, lesson) : Promise.resolve(false),
   ]);
   const progressByContent = new Map(contentProgress.map((item) => [item.lessonSectionId, item]));
+  const ungrouped = (lesson.LessonSections || []).filter((section) => !section.topicId);
+  const allSections = [...topics.flatMap((topic) => topic.LessonSections || []), ...ungrouped];
+  const quizzes = allSections.length
+    ? await db.Quiz.findAll({
+      where: { lessonSectionId: allSections.map((section) => section.id), status: "published" },
+      attributes: ["id", "lessonSectionId"]
+    })
+    : [];
+  const quizIdBySection = new Map(quizzes.map((quiz) => [quiz.lessonSectionId, quiz.id]));
   const mapped = topics.map((topic) => ({
     id: topic.id,
     title: topic.titleEn || topic.title,
@@ -347,12 +357,11 @@ const lessonTopics = async (lesson, userId) => {
     descriptionSi: topic.descriptionSi || null,
     sortOrder: topic.sortOrder,
     contentItems: (topic.LessonSections || []).map((section) =>
-      safeLearningContent(section, unlocked, progressByContent.get(section.id)),
+      safeLearningContent(section, unlocked, progressByContent.get(section.id), quizIdBySection.get(section.id)),
     ),
   }));
   // Existing published content predates topics. It remains available as one
   // clearly named fallback topic rather than being hidden or fabricated.
-  const ungrouped = (lesson.LessonSections || []).filter((section) => !section.topicId);
   if (ungrouped.length)
     mapped.unshift({
       id: `legacy-${lesson.id}`,
@@ -363,7 +372,7 @@ const lessonTopics = async (lesson, userId) => {
       descriptionSi: null,
       sortOrder: 0,
       contentItems: ungrouped.map((section) =>
-        safeLearningContent(section, unlocked, progressByContent.get(section.id)),
+        safeLearningContent(section, unlocked, progressByContent.get(section.id), quizIdBySection.get(section.id)),
       ),
     });
   return { topics: mapped, premiumUnlocked: unlocked };
@@ -810,6 +819,12 @@ router.post(
         status: "submitted",
         paymentSlipResourceId: paymentSlipResource?.id,
       });
+      // Receipt submission moves the Order into a distinct review stage.
+      // This keeps the student and staff views aligned without granting access
+      // until a staff member verifies the payment.
+      const fromStatus = order.status;
+      await order.update({ status: "awaiting_payment", paymentStatus: "pending", paymentMethod: "bank_transfer" });
+      await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "awaiting_payment", paymentStatus: "pending", actorUserId: req.user.sub, reason: "payment_receipt_submitted" });
       send(res, payment, 201);
     } catch (error) {
       if (paymentSlipResource) {
