@@ -39,6 +39,8 @@ app.use(helmet());
 app.use(cors({ origin: env.origins, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: "2mb" }));
+// PayHere sends its server-to-server payment notification as form data.
+app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 app.use(cookieParser());
 // Only public content is ever exposed as static files. Private uploads are streamed
 // by authenticated resource/payment endpoints instead.

@@ -3,7 +3,7 @@ import { defineModel } from "./helpers.js";
 
 export const definePaymentTransaction = (sequelize) => defineModel(sequelize, "PaymentTransaction", {
   orderId: { type: DataTypes.UUID, allowNull: false },
-  provider: { type: DataTypes.ENUM("directpay"), allowNull: false, defaultValue: "directpay" },
+  provider: { type: DataTypes.ENUM("legacy", "payhere"), allowNull: false, defaultValue: "payhere" },
   providerTransactionId: DataTypes.STRING,
   providerReference: DataTypes.STRING,
   merchantReference: { type: DataTypes.STRING, allowNull: false, unique: true },

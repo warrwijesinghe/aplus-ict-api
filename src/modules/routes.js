@@ -36,7 +36,7 @@ import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment, unenrol
 import { courseState, dashboard, learningHistory } from "./students/student-learning.service.js";
 import { changeAdminEnrolment, listStudents, studentDetail, studentHistory, studentProgress, studentResults, updateAdminEnrolment } from "./students/student-admin.service.js";
 import siteRoutes from "./site/routes.js";
-import directPayRoutes from "./integrations/directpay/routes.js";
+import payHereRoutes from "./integrations/payhere/routes.js";
 import { PERMISSIONS } from "../security/permissions.js";
 import { audit, requirePermission, requirePermissionForTrack } from "../security/authorization.js";
 import { createContentAdminRouter } from "./content/admin-content.routes.js";
@@ -73,7 +73,7 @@ const safeResourceWhere = (query) => {
 // Register authentication before feature routes that use its middleware.
 authRoutes(router);
 router.use(siteRoutes);
-router.use(directPayRoutes);
+router.use(payHereRoutes);
 
 const educatorInclude = [{ model: db.Role, attributes: ["code", "name"] }, { model: db.EducatorAssignment, as: "EducatorAssignments", required: false }];
 const asEducator = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, roles: (user.Roles || []).map((role) => role.code), status: user.status, assignedCourseCount: (user.EducatorAssignments || []).filter((item) => item.status === "active").length, lastLoginAt: user.lastLoginAt || null });

@@ -57,19 +57,20 @@ The importer skips records that already exist.
 
 The API listens on `http://localhost:4000`; health and readiness endpoints are `/health` and `/ready`. See [docs/MIGRATION_REPORT.md](docs/MIGRATION_REPORT.md) for the migration inventory and known verification limits.
 
-## DirectPay one-time payments
+## PayHere Sandbox payments
 
 Public legal identity is defined once in `src/config/business-identity.js` and exposed through the non-sensitive `/api/v1/site-profile` endpoint. Keep bank details, credentials, keys, and company documents out of that endpoint.
 
-The internal DirectPay module is in `src/modules/integrations/directpay`. It is disabled by default. Configure the backend with:
+The active student card checkout uses PayHere's onsite popup. Configure the API with:
 
 ```dotenv
-DIRECTPAY_ENABLED=false
-DIRECTPAY_ENVIRONMENT=development
-DIRECTPAY_MERCHANT_ID=LM13479
+PAYHERE_SANDBOX=true
+PAYHERE_MERCHANT_ID=
+PAYHERE_MERCHANT_SECRET=
+PAYHERE_NOTIFY_URL=https://api.dev.aplusict.lk/api/v1/payments/payhere/notify
 ```
 
-Never commit credentials or private keys. The API creates the payment reference and gets the amount from the stored order. Do not enable this integration or register the Confirmation Endpoint in a merchant portal until DirectPay provides an authenticated confirmation or transaction-status contract for this JavaScript one-time-payment flow. The published JavaScript SDK documentation does not document an HMAC transaction-status API, so no unsupported status-check call is made.
+Never commit the Merchant Secret or put it in the Web application. The API derives the amount from the stored order, creates a payment-attempt reference, and verifies PayHere's signed form notification before completing an order and granting entitlements. Register `PAYHERE_NOTIFY_URL` as the PayHere notify URL; it must be publicly reachable over HTTPS.
 
 ## Upload storage
 

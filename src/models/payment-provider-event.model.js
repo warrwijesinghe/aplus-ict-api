@@ -2,7 +2,7 @@ import { DataTypes } from "sequelize";
 import { defineModel } from "./helpers.js";
 
 export const definePaymentProviderEvent = (sequelize) => defineModel(sequelize, "PaymentProviderEvent", {
-  provider: { type: DataTypes.ENUM("directpay"), allowNull: false, defaultValue: "directpay" },
+  provider: { type: DataTypes.ENUM("legacy", "payhere"), allowNull: false, defaultValue: "payhere" },
   providerEventId: DataTypes.STRING,
   paymentTransactionId: DataTypes.UUID,
   orderId: DataTypes.UUID,
