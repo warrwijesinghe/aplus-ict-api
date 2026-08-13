@@ -1,41 +1,27 @@
-import crypto from "node:crypto";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { directPayHealth } from "../src/modules/integrations/directpay/directpay.service.js";
-import { browserSigningPayload, responseSigningPayload, signPayload, verifyPayload } from "../src/modules/integrations/directpay/directpay.signature.js";
+import { parseConfirmationPayload } from "../src/modules/integrations/directpay/directpay.validation.js";
 
-const keyPair = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
-const privateKey = keyPair.privateKey.export({ type: "pkcs8", format: "pem" });
-const publicKey = keyPair.publicKey.export({ type: "spki", format: "pem" });
-const response = { orderId: "order-1", transactionId: "transaction-1", reference: "APL-1", amount: "2500.00", currency: "LKR", status: "SUCCESS" };
-
-describe("DirectPay sandbox foundation", () => {
+describe("DirectPay one-time payment foundation", () => {
   it("reports disabled by default without revealing configuration", () => {
-    expect(directPayHealth({ enabled: false, environment: "sandbox" })).toEqual({ status: "disabled", environment: "sandbox", enabled: false });
+    expect(directPayHealth({ enabled: false, environment: "development" })).toEqual({ status: "disabled", environment: "development", enabled: false });
   });
 
-  it("detects missing enabled sandbox configuration", () => {
-    expect(directPayHealth({ enabled: true, environment: "sandbox" }).status).toBe("incomplete");
+  it("detects missing enabled configuration", () => {
+    expect(directPayHealth({ enabled: true, environment: "development" }).status).toBe("incomplete");
   });
 
-  it("signs and verifies a valid response signature", () => {
-    const signature = signPayload(responseSigningPayload(response), privateKey);
-    expect(verifyPayload(responseSigningPayload(response), signature, publicKey)).toBe(true);
+  it("parses the documented server confirmation envelope", () => {
+    expect(parseConfirmationPayload({ status: 200, type: "INIT_TRN", paymentCategory: "ONE_TIME", data: { transactionId: 1234, status: "SUCCESS", reference: "DPABC", amount: "2500.00", currency: "LKR", description: "Approved" } })).toEqual({ transactionId: "1234", status: "SUCCESS", reference: "DPABC", amount: "2500.00", currency: "LKR", description: "Approved" });
   });
 
-  it("rejects an invalid response signature", () => {
-    expect(verifyPayload(responseSigningPayload(response), "not-a-signature", publicKey)).toBe(false);
+  it("rejects incomplete confirmation payloads", () => {
+    expect(() => parseConfirmationPayload({ data: { status: "SUCCESS" } })).toThrow("incomplete");
   });
 
-  it("uses the documented browser field order and binds the amount to the signature", () => {
-    const request = { merchantId: "merchant", amount: "2500.00", currency: "LKR", pluginName: "CUSTOM", pluginVersion: "1.0", returnUrl: "https://web.test/return", cancelUrl: "https://web.test/cancel", orderId: "APLDP-1", reference: "APLDP-1", firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", description: "Exam Success Pack", apiKey: "test-key", responseUrl: "https://api.test/callback" };
-    const signature = signPayload(browserSigningPayload(request), privateKey);
-    expect(verifyPayload(browserSigningPayload(request), signature, publicKey)).toBe(true);
-    expect(verifyPayload(browserSigningPayload({ ...request, amount: "2500.01" }), signature, publicKey)).toBe(false);
-  });
-
-  it("rejects malformed callback payloads and never grants access", async () => {
-    const malformed = await request(app).post("/api/v1/payments/directpay/response").send({ orderId: "order-1" });
+  it("rejects malformed confirmation payloads", async () => {
+    const malformed = await request(app).post("/api/v1/payments/directpay/confirmation").send({ orderId: "order-1" });
     expect(malformed.status).toBe(422);
     const health = await request(app).get("/api/v1/payments/directpay/health");
     expect(health.body.data).toMatchObject({ status: "disabled", enabled: false });

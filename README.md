@@ -57,25 +57,20 @@ The importer skips records that already exist.
 
 The API listens on `http://localhost:4000`; health and readiness endpoints are `/health` and `/ready`. See [docs/MIGRATION_REPORT.md](docs/MIGRATION_REPORT.md) for the migration inventory and known verification limits.
 
-## Business identity and DirectPay foundation
+## DirectPay one-time payments
 
 Public legal identity is defined once in `src/config/business-identity.js` and exposed through the non-sensitive `/api/v1/site-profile` endpoint. Keep bank details, credentials, keys, and company documents out of that endpoint.
 
-The internal DirectPay module is in `src/modules/integrations/directpay`. It is sandbox-only and disabled by default. Configure only in the API environment:
+The internal DirectPay module is in `src/modules/integrations/directpay`. It is disabled by default. Configure the backend with:
 
 ```dotenv
 DIRECTPAY_ENABLED=false
-DIRECTPAY_ENVIRONMENT=sandbox
-DIRECTPAY_MERCHANT_ID=
-DIRECTPAY_API_KEY=
-DIRECTPAY_PRIVATE_KEY_PATH=
-DIRECTPAY_PUBLIC_KEY_PATH=
-DIRECTPAY_RETURN_URL=
-DIRECTPAY_CANCEL_URL=
-DIRECTPAY_RESPONSE_URL=
+DIRECTPAY_ENVIRONMENT=development
+DIRECTPAY_MERCHANT_ID=LM13479
+DIRECTPAY_MERCHANT_SECRET=
 ```
 
-Never commit credentials or PEM keys. The callback foundation at `POST /api/v1/payments/directpay/response` validates a signed response but deliberately records no payment and grants no entitlement. A later commerce task will implement: student creates order → API loads and validates order, price and student → signed hosted-payment request → signed server callback → idempotent payment record → entitlement grant.
+Never commit credentials or private keys. Register `POST /api/v1/payments/directpay/confirmation` under the public API host in the DirectPay portal. The API creates the payment reference and gets the amount from the stored order; it activates entitlement only when the Confirmation Endpoint payload matches the stored reference, amount, and currency. The JavaScript SDK documentation does not document an HMAC transaction-status API for this one-time flow, so no unsupported status-check call is made.
 
 ## Upload storage
 
