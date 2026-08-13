@@ -24,6 +24,6 @@ describe("DirectPay one-time payment foundation", () => {
     const malformed = await request(app).post("/api/v1/payments/directpay/confirmation").send({ orderId: "order-1" });
     expect(malformed.status).toBe(422);
     const health = await request(app).get("/api/v1/payments/directpay/health");
-    expect(health.body.data).toMatchObject({ status: "disabled", enabled: false });
+    expect(health.body.data).toEqual(directPayHealth());
   });
 });

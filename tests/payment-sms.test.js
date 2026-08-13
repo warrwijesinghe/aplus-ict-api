@@ -1,6 +1,7 @@
 import { jest } from "@jest/globals";
 import { db } from "../src/models/index.js";
-import { paymentApprovedSmsText, paymentCorrectionSmsText, receiptReceivedSmsText } from "../src/modules/commerce/commerce.service.js";
+import { env } from "../src/config/env.js";
+import { paymentApprovedSmsText, paymentCorrectionSmsText, queueStudentPaymentSms, receiptReceivedSmsText } from "../src/modules/commerce/commerce.service.js";
 import { queueAutomatedSms } from "../src/modules/sms/sms.service.js";
 
 const order = { id: "2a5d5d53-5b1c-4be1-9f72-72ee362b562d", orderNumber: "26080001" };
@@ -11,6 +12,14 @@ const message = {
 };
 
 describe("transactional payment SMS", () => {
+  it("does not let disabled SMS prevent an authoritative payment transaction", async () => {
+    const previous = process.env.SMS_ENABLED;
+    process.env.SMS_ENABLED = "false";
+    try {
+      await expect(queueStudentPaymentSms({ order, actorUserId: "admin-1", eventKey: "PAYMENT_APPROVED:order-1", text: "Payment approved" })).resolves.toEqual({ skipped: true, reason: "sms_disabled" });
+    } finally { if (previous === undefined) delete process.env.SMS_ENABLED; else process.env.SMS_ENABLED = previous; }
+  });
+
   it("uses concise PAYMENT messages with the order reference and public order link", () => {
     const receipt = receiptReceivedSmsText(order);
     const approved = paymentApprovedSmsText(order);
@@ -19,7 +28,7 @@ describe("transactional payment SMS", () => {
     expect(receipt).toContain("Receipt received.\nOrder:26080001");
     expect(receipt).toContain("under review");
     expect(approved).toContain("Payment approved.\nOrder:26080001");
-    expect(approved).toContain("https://aplusict.lk/student/orders/");
+    expect(approved).toContain(`${env.publicWebUrl}/student/orders/`);
     expect(correction).toContain("Payment needs attention.\nOrder:26080001");
     expect(correction).toContain("Review & resubmit receipt");
     for (const text of [receipt, approved, correction]) expect([...text].length).toBeLessThanOrEqual(160);

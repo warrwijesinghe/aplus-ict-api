@@ -67,10 +67,9 @@ The internal DirectPay module is in `src/modules/integrations/directpay`. It is 
 DIRECTPAY_ENABLED=false
 DIRECTPAY_ENVIRONMENT=development
 DIRECTPAY_MERCHANT_ID=LM13479
-DIRECTPAY_MERCHANT_SECRET=
 ```
 
-Never commit credentials or private keys. Register `POST /api/v1/payments/directpay/confirmation` under the public API host in the DirectPay portal. The API creates the payment reference and gets the amount from the stored order; it activates entitlement only when the Confirmation Endpoint payload matches the stored reference, amount, and currency. The JavaScript SDK documentation does not document an HMAC transaction-status API for this one-time flow, so no unsupported status-check call is made.
+Never commit credentials or private keys. The API creates the payment reference and gets the amount from the stored order. Do not enable this integration or register the Confirmation Endpoint in a merchant portal until DirectPay provides an authenticated confirmation or transaction-status contract for this JavaScript one-time-payment flow. The published JavaScript SDK documentation does not document an HMAC transaction-status API, so no unsupported status-check call is made.
 
 ## Upload storage
 

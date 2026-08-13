@@ -4,6 +4,7 @@ import { db } from "../../models/index.js";
 import { requireCompletedProfile } from "../students/student-profile.service.js";
 import { env } from "../../config/env.js";
 import { normalizeSriLankanMobile, queueAutomatedSms, queueSms } from "../sms/sms.service.js";
+import { assertSmsConfig, getSmsConfig } from "../sms/sms.config.js";
 import { findBankAccount } from "./bank-accounts.js";
 
 const activeEntitlementWhere = () => ({ status: "active", [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] });
@@ -136,8 +137,13 @@ export const receiptReceivedSmsText = (order) => `A Plus ICT PAYMENT\nReceipt re
 export const paymentApprovedSmsText = (order) => `A Plus ICT PAYMENT\nPayment approved.\nOrder:${order.orderNumber}\nAccess active.\nStart learning:\n${studentOrderUrl(order)}`;
 export const paymentCorrectionSmsText = (order) => `A Plus ICT PAYMENT\nPayment needs attention.\nOrder:${order.orderNumber}\nReview & resubmit receipt:\n${studentOrderUrl(order)}`;
 export const queueStudentPaymentSms = async ({ order, actorUserId, eventKey, text, transaction }) => {
+  const config = getSmsConfig();
+  if (!config.enabled) return { skipped: true, reason: "sms_disabled" };
+  try { assertSmsConfig(config); } catch { return { skipped: true, reason: "sms_configuration_incomplete" }; }
   const profile = await db.StudentProfile.findOne({ where: { userId: order.userId }, transaction });
-  const recipient = normalizeSriLankanMobile(profile?.mobileNumber);
+  let recipient;
+  try { recipient = normalizeSriLankanMobile(profile?.mobileNumber); }
+  catch { return { skipped: true, reason: "student_mobile_invalid" }; }
   return queueAutomatedSms({ recipient, text, category: "payment", messageType: 0, contentType: "standard" }, actorUserId, eventKey, { transaction });
 };
 export const sendStudentBankDepositPaymentDetails = async (userId, id, bankAccountIds) => {

@@ -1,4 +1,5 @@
 import { bankAccounts, findBankAccount } from "../src/modules/commerce/bank-accounts.js";
+import { env } from "../src/config/env.js";
 import { bankDepositSmsText, orderDetailsSmsText, receiptUploadSmsText } from "../src/modules/commerce/commerce.service.js";
 
 describe("bank deposit payment-detail SMS", () => {
@@ -26,7 +27,7 @@ describe("bank deposit payment-detail SMS", () => {
   it("creates one short, order-specific receipt-upload link after the bank details", () => {
     const text = receiptUploadSmsText({ id: "2a5d5d53-5b1c-4be1-9f72-72ee362b562d" });
     expect(text).toContain("Upload receipt:");
-    expect(text).toContain("https://aplusict.lk");
+    expect(text).toContain(env.publicWebUrl);
     expect(text).toContain("/student/orders/2a5d5d53-5b1c-4be1-9f72-72ee362b562d/payment/bank-deposit");
     expect([...text].length).toBeLessThanOrEqual(160);
   });
@@ -35,7 +36,7 @@ describe("bank deposit payment-detail SMS", () => {
     const text = orderDetailsSmsText({ id: "2a5d5d53-5b1c-4be1-9f72-72ee362b562d", orderNumber: "26080001", total: "1800.00" });
     expect(text).toContain("A Plus ICT ORDER\nOrder:26080001\nAmount: Rs1800");
     expect(text).toContain("Order ready. Choose payment:");
-    expect(text).toContain("https://aplusict.lk/student/orders/2a5d5d53-5b1c-4be1-9f72-72ee362b562d");
+    expect(text).toContain(`${env.publicWebUrl}/student/orders/2a5d5d53-5b1c-4be1-9f72-72ee362b562d`);
     expect([...text].length).toBeLessThanOrEqual(160);
   });
 });
