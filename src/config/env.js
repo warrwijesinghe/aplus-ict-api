@@ -20,6 +20,7 @@ export const env = Object.freeze({
   origins: (
     process.env.CORS_ORIGINS || "http://localhost:5173,http://localhost:5174"
   ).split(","),
+  publicWebUrl: (process.env.WEB_PUBLIC_URL || "http://localhost:5173").replace(/\/+$/, ""),
   uploadRoot: process.env.UPLOAD_ROOT || "storage/uploads",
   publicUploadDir:
     process.env.PUBLIC_UPLOAD_DIR || "storage/uploads/public",
@@ -38,4 +39,14 @@ export const env = Object.freeze({
   resourceArchiveRetentionDays: Number(process.env.RESOURCE_ARCHIVE_RETENTION_DAYS || 90),
   paymentSlipRetentionDays: Number(process.env.PAYMENT_SLIP_RETENTION_DAYS || 2555),
   assignmentSubmissionRetentionDays: Number(process.env.ASSIGNMENT_SUBMISSION_RETENTION_DAYS || 730),
+  sms: {
+    enabled: (process.env.SMS_ENABLED || "false").toLowerCase() === "true",
+    username: process.env.SMS_USERNAME || "",
+    password: process.env.SMS_PASSWORD || "",
+    sender: process.env.SMS_SENDER || "",
+    workerIntervalMs: Math.max(1000, Number(process.env.SMS_WORKER_INTERVAL_MS || 5000)),
+    requestTimeoutMs: Math.max(1000, Number(process.env.SMS_REQUEST_TIMEOUT_MS || 15000)),
+    sendingTimeoutMs: Math.max(60_000, Number(process.env.SMS_SENDING_TIMEOUT_MS || 300_000)),
+    inboundToken: process.env.SMS_INBOUND_TOKEN || "",
+  },
 });

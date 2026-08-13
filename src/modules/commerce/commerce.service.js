@@ -2,6 +2,9 @@ import { Op } from "sequelize";
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { requireCompletedProfile } from "../students/student-profile.service.js";
+import { env } from "../../config/env.js";
+import { normalizeSriLankanMobile, queueAutomatedSms, queueSms } from "../sms/sms.service.js";
+import { findBankAccount } from "./bank-accounts.js";
 
 const activeEntitlementWhere = () => ({ status: "active", [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] });
 const pendingTtlMinutes = Math.max(15, Number(process.env.ORDER_PENDING_EXPIRY_MINUTES || 60 * 24));
@@ -107,7 +110,9 @@ export const createStudentOrder = async (userId, productId, idempotencyKey) => {
     const order = await db.Order.create({ userId, orderNumber: await nextStudentOrderNumber(transaction), idempotencyKey: idempotencyKey || null, status: "payment_pending", paymentStatus: "unpaid", source: "student", currency: "LKR", subtotal: amount(unit), discountTotal: "0.00", total: amount(unit), expiresAt }, { transaction });
     await db.OrderItem.create({ orderId: order.id, productId: product.id, productNameSnapshot: product.name, productTypeSnapshot: product.productType, name: product.name, currency: "LKR", unitPrice: amount(unit), quantity: 1, lineTotal: amount(unit), courseId: product.courseId, courseTrackId: product.courseTrackId, lessonId: product.lessonId }, { transaction });
     await db.OrderStatusHistory.create({ orderId: order.id, fromStatus: null, toStatus: "payment_pending", paymentStatus: "unpaid", actorUserId: userId, reason: "student_order_created" }, { transaction });
-    return { order: await db.Order.findByPk(order.id, { include: [db.OrderItem], transaction }), existing: false };
+    const createdOrder = await db.Order.findByPk(order.id, { include: [db.OrderItem], transaction });
+    const sms = await queueStudentPaymentSms({ order: createdOrder, actorUserId: userId, eventKey: `ORDER_CREATED:${order.id}`, text: orderDetailsSmsText(createdOrder), transaction });
+    return { order: createdOrder, sms, existing: false };
   });
 };
 
@@ -123,6 +128,42 @@ export const submitStudentBankDeposit = async (userId, id) => db.sequelize.trans
   await db.OrderStatusHistory.create({ orderId: order.id, fromStatus: order.status, toStatus: order.status, paymentStatus: "pending", actorUserId: userId, reason: "bank_deposit_payment_pending" }, { transaction });
   return serializeOrder(order);
 });
+export const bankDepositSmsText = (order, account) => `A Plus ICT PAYMENT\nOrder:${order.orderNumber} | Rs${String(order.total).replace(/\.00$/, "")}\nBank: ${account.bank.replace(/ Bank$/, "")}\nBr: ${account.branch}\nA/C: ${account.accountName}\nNo: ${account.accountNumber}\naplusict.lk`;
+export const receiptUploadSmsText = (order) => `A Plus ICT PAYMENT\nUpload receipt:\n${env.publicWebUrl}/student/orders/${order.id}/payment/bank-deposit`;
+export const orderDetailsSmsText = (order) => `A Plus ICT ORDER\nOrder:${order.orderNumber}\nAmount: Rs${String(order.total).replace(/\.00$/, "")}\n\nOrder ready. Choose payment:\n${env.publicWebUrl}/student/orders/${order.id}`;
+export const studentOrderUrl = (order) => `${env.publicWebUrl}/student/orders/${order.id}`;
+export const receiptReceivedSmsText = (order) => `A Plus ICT PAYMENT\nReceipt received.\nOrder:${order.orderNumber}\nYour payment is under review.\nWe will notify you after verification.\naplusict.lk`;
+export const paymentApprovedSmsText = (order) => `A Plus ICT PAYMENT\nPayment approved.\nOrder:${order.orderNumber}\nAccess active.\nStart learning:\n${studentOrderUrl(order)}`;
+export const paymentCorrectionSmsText = (order) => `A Plus ICT PAYMENT\nPayment needs attention.\nOrder:${order.orderNumber}\nReview & resubmit receipt:\n${studentOrderUrl(order)}`;
+export const queueStudentPaymentSms = async ({ order, actorUserId, eventKey, text, transaction }) => {
+  const profile = await db.StudentProfile.findOne({ where: { userId: order.userId }, transaction });
+  const recipient = normalizeSriLankanMobile(profile?.mobileNumber);
+  return queueAutomatedSms({ recipient, text, category: "payment", messageType: 0, contentType: "standard" }, actorUserId, eventKey, { transaction });
+};
+export const sendStudentBankDepositPaymentDetails = async (userId, id, bankAccountIds) => {
+  const selectedIds = [...new Set(Array.isArray(bankAccountIds) ? bankAccountIds : [])];
+  if (!selectedIds.length) throw new ApiError(422, "Select at least one bank account");
+  const accounts = selectedIds.map(findBankAccount);
+  const details = await db.sequelize.transaction(async (transaction) => {
+    const [order, profile] = await Promise.all([
+      db.Order.findOne({ where: { id, userId }, transaction, lock: transaction.LOCK.UPDATE }),
+      db.StudentProfile.findOne({ where: { userId }, transaction }),
+    ]);
+    if (!order) throw new ApiError(404, "Order not found");
+    const recipient = normalizeSriLankanMobile(profile?.mobileNumber);
+    await expireOrder(order, transaction);
+    if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status) || order.paymentStatus !== "unpaid")
+      throw new ApiError(409, "Order is not eligible for bank deposit");
+    await order.update({ paymentStatus: "pending", paymentMethod: "bank_deposit" }, { transaction });
+    await db.OrderStatusHistory.create({ orderId: order.id, fromStatus: order.status, toStatus: order.status, paymentStatus: "pending", actorUserId: userId, reason: "bank_deposit_payment_details_requested" }, { transaction });
+    return { recipient, order: serializeOrder(order) };
+  });
+  const sms = await Promise.all([
+    ...accounts.map((account) => queueSms({ recipient: details.recipient, text: bankDepositSmsText(details.order, account), category: "payment", messageType: 0, contentType: "standard" }, userId)),
+    queueSms({ recipient: details.recipient, text: receiptUploadSmsText(details.order), category: "payment", messageType: 0, contentType: "standard" }, userId),
+  ]);
+  return { order: details.order, sms: sms.map((entry) => ({ id: entry.id, recipient: entry.recipient, status: entry.status })) };
+};
 export const submitStudentBankTransfer = async (userId, id) => db.sequelize.transaction(async (transaction) => {
   const order = await db.Order.findOne({ where: { id, userId }, transaction, lock: transaction.LOCK.UPDATE });
   if (!order) throw new ApiError(404, "Order not found");
@@ -136,6 +177,6 @@ export const submitStudentBankTransfer = async (userId, id) => db.sequelize.tran
 export const cancelStudentOrder = async (userId, id) => db.sequelize.transaction(async (transaction) => { const order = await db.Order.findOne({ where: { id, userId }, transaction, lock: transaction.LOCK.UPDATE }); if (!order) throw new ApiError(404, "Order not found"); await expireOrder(order, transaction); if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status) || !["unpaid", "pending"].includes(order.paymentStatus)) throw new ApiError(409, "Only unpaid pending Orders can be cancelled"); const fromStatus = order.status; await order.update({ status: "cancelled", cancelledAt: now() }, { transaction }); await db.OrderStatusHistory.create({ orderId: id, fromStatus, toStatus: "cancelled", paymentStatus: order.paymentStatus, actorUserId: userId, reason: "student_cancelled" }, { transaction }); return serializeOrder(order); });
 
 export const grantOrderEntitlements = async (order, actorUserId, transaction) => { const items = await db.OrderItem.findAll({ where: { orderId: order.id }, transaction }); const results = []; for (const item of items) { const rules = await db.ProductEntitlementRule.findAll({ where: { productId: item.productId }, transaction }); for (const rule of rules) { const existing = await db.Entitlement.findOne({ where: { userId: order.userId, sourceType: "order", sourceId: order.id, lessonId: rule.lessonId, entitlementType: rule.entitlementType }, transaction }); if (existing) { results.push(existing); continue; } const startsAt = now(), days = rule.durationDays ?? (await db.Product.findByPk(item.productId, { transaction }))?.entitlementDurationDays, endsAt = days ? new Date(startsAt.getTime() + Number(days) * 86400000) : null; const active = await db.Entitlement.findOne({ where: { userId: order.userId, entitlementType: rule.entitlementType, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, ...activeEntitlementWhere() }, transaction }); if (active) { results.push(active); continue; } results.push(await db.Entitlement.create({ userId: order.userId, entitlementType: rule.entitlementType, courseId: rule.courseId, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, activityId: rule.activityId, orderId: order.id, sourceType: "order", sourceId: order.id, status: "active", startsAt, endsAt, grantedBy: actorUserId }, { transaction })); } } return results; };
-export const verifyOrderPayment = async (id, actorUserId) => db.sequelize.transaction(async (transaction) => { const order = await db.Order.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE }); if (!order) throw new ApiError(404, "Order not found"); if (["paid", "completed"].includes(order.status) && order.paymentStatus === "verified") return { order, entitlements: await db.Entitlement.findAll({ where: { sourceType: "order", sourceId: order.id }, transaction }), idempotent: true }; if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status)) throw new ApiError(409, "Order is not eligible for manual payment verification"); const fromStatus = order.status; await order.update({ status: "completed", paymentStatus: "verified", paymentMethod: order.paymentMethod || "manual_verification", completedAt: now() }, { transaction }); const entitlements = await grantOrderEntitlements(order, actorUserId, transaction); await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "completed", paymentStatus: "verified", actorUserId, reason: "manual_payment_verified" }, { transaction }); return { order, entitlements, idempotent: false }; });
+export const verifyOrderPayment = async (id, actorUserId) => db.sequelize.transaction(async (transaction) => { const order = await db.Order.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE }); if (!order) throw new ApiError(404, "Order not found"); if (["paid", "completed"].includes(order.status) && order.paymentStatus === "verified") { const sms = await queueStudentPaymentSms({ order, actorUserId, eventKey: `PAYMENT_APPROVED:${order.id}`, text: paymentApprovedSmsText(order), transaction }); return { order, entitlements: await db.Entitlement.findAll({ where: { sourceType: "order", sourceId: order.id }, transaction }), sms, idempotent: true }; } if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status)) throw new ApiError(409, "Order is not eligible for manual payment verification"); const fromStatus = order.status; await order.update({ status: "completed", paymentStatus: "verified", paymentMethod: order.paymentMethod || "manual_verification", completedAt: now() }, { transaction }); const entitlements = await grantOrderEntitlements(order, actorUserId, transaction); await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "completed", paymentStatus: "verified", actorUserId, reason: "manual_payment_verified" }, { transaction }); const sms = await queueStudentPaymentSms({ order, actorUserId, eventKey: `PAYMENT_APPROVED:${order.id}`, text: paymentApprovedSmsText(order), transaction }); return { order, entitlements, sms, idempotent: false }; });
 export const listAdminOrders = async (query = {}) => { const page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 25)); const where = Object.fromEntries(["status", "paymentStatus"].filter((key) => query[key]).map((key) => [key, query[key]])); const { count, rows } = await db.Order.findAndCountAll({ where, include: [{ model: db.User, attributes: ["id", "name", "email"] }, db.OrderItem, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory", required: false }], order: [["createdAt", "DESC"]], limit: pageSize, offset: (page - 1) * pageSize, distinct: true }); return { items: rows.map((row) => serializeOrder(row, { admin: true })), pagination: { page, pageSize, total: count } }; };
 export const adminOrder = async (id) => { const order = await db.Order.findByPk(id, { include: [{ model: db.User, attributes: ["id", "name", "email"] }, db.OrderItem, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory" }, { model: db.Entitlement, as: "Entitlements", required: false }], order: [[{ model: db.OrderStatusHistory, as: "StatusHistory" }, "createdAt", "ASC"]] }); if (!order) throw new ApiError(404, "Order not found"); return serializeOrder(order, { admin: true }); };

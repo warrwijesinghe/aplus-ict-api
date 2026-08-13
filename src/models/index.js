@@ -39,6 +39,7 @@ import { defineQuiz, defineQuizQuestion, defineQuizRandomRule } from "./quiz.mod
 import { defineQuizAttempt, defineQuizAttemptQuestion, defineQuizAnswer, defineQuizAnswerOption, defineQuizAnswerMatchingItem, defineQuizAnswerOrderingItem, defineQuizGrade } from "./quiz-attempt.model.js";
 import { defineActivityCompletion } from "./activity-completion.model.js";
 import { defineActivityPrerequisite, defineTeacherActivityApproval, defineTeacherGradeComment } from "./activity-prerequisite.model.js";
+import { defineSmsInboundMessage, defineSmsMessage, defineSmsMessageAttempt } from "./sms-message.model.js";
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
@@ -100,6 +101,9 @@ export const ActivityCompletion = defineActivityCompletion(sequelize);
 export const ActivityPrerequisite = defineActivityPrerequisite(sequelize);
 export const TeacherActivityApproval = defineTeacherActivityApproval(sequelize);
 export const TeacherGradeComment = defineTeacherGradeComment(sequelize);
+export const SmsMessage = defineSmsMessage(sequelize);
+export const SmsMessageAttempt = defineSmsMessageAttempt(sequelize);
+export const SmsInboundMessage = defineSmsInboundMessage(sequelize);
 
 // Catalogue hierarchy: category -> course -> medium track -> lesson -> sections.
 Category.hasMany(Course, { foreignKey: "categoryId" });
@@ -204,6 +208,9 @@ User.hasMany(ActivityCompletion, { foreignKey: "userId" }); ActivityCompletion.b
 LessonSection.hasMany(ActivityPrerequisite, { foreignKey: "activityId", as: "Prerequisites" }); ActivityPrerequisite.belongsTo(LessonSection, { foreignKey: "activityId", as: "Activity" });
 User.hasMany(TeacherActivityApproval, { foreignKey: "userId", as: "ActivityApprovals" }); TeacherActivityApproval.belongsTo(User, { foreignKey: "userId" }); LessonSection.hasMany(TeacherActivityApproval, { foreignKey: "activityId" }); TeacherActivityApproval.belongsTo(LessonSection, { foreignKey: "activityId" });
 User.hasMany(TeacherGradeComment, { foreignKey: "userId", as: "GradeComments" }); TeacherGradeComment.belongsTo(User, { foreignKey: "userId" }); CourseTrack.hasMany(TeacherGradeComment, { foreignKey: "courseTrackId" }); TeacherGradeComment.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
+User.hasMany(SmsMessage, { foreignKey: "createdByUserId", as: "SmsMessages" }); SmsMessage.belongsTo(User, { foreignKey: "createdByUserId", as: "CreatedBy" });
+SmsMessage.hasMany(SmsMessageAttempt, { foreignKey: "smsMessageId", as: "Attempts" }); SmsMessageAttempt.belongsTo(SmsMessage, { foreignKey: "smsMessageId" });
+SmsMessage.belongsTo(SmsMessage, { foreignKey: "resentFromMessageId", as: "ResentFrom" });
 
 export const db = {
   sequelize,
@@ -245,4 +252,5 @@ export const db = {
   QuestionCategory, Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig, QuestionTag, QuestionTagAssignment,
   Quiz, QuizQuestion, QuizRandomRule, QuizAttempt, QuizAttemptQuestion, QuizAnswer, QuizAnswerOption, QuizAnswerMatchingItem, QuizAnswerOrderingItem, QuizGrade,
   ActivityCompletion, ActivityPrerequisite, TeacherActivityApproval, TeacherGradeComment,
+  SmsMessage, SmsMessageAttempt, SmsInboundMessage,
 };

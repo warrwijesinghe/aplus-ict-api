@@ -30,6 +30,7 @@ import {
 import { accessibleProgress } from "./learning/progress.service.js";
 import { createLessonOrder } from "./orders/order.service.js";
 import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/payment.service.js";
+import { queueStudentPaymentSms, receiptReceivedSmsText } from "./commerce/commerce.service.js";
 import { getStudentProfile, saveStudentProfile, requireCompletedProfile } from "./students/student-profile.service.js";
 import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment, unenrollStudent } from "./students/enrollment.service.js";
 import { courseState, dashboard, learningHistory } from "./students/student-learning.service.js";
@@ -47,6 +48,7 @@ import { createQuizRouter } from "./quiz/quiz.routes.js";
 import { createQuizAttemptRouter } from "./quiz/quiz-attempt.routes.js";
 import completionGradebookRoutes from "./learning/completion-gradebook.routes.js";
 import commerceRoutes from "./commerce/commerce.routes.js";
+import smsRoutes from "./sms/sms.routes.js";
 // API composition point. Feature routes can later move into dedicated routers
 // without changing the versioned public contract.
 const router = Router(),
@@ -120,6 +122,7 @@ router.use(createQuizAttemptRouter());
 router.use(completionGradebookRoutes);
 router.use(studentPlayerRoutes);
 router.use(commerceRoutes);
+router.use(smsRoutes);
 
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
@@ -810,24 +813,34 @@ router.post(
         throw error;
       }
     }
+    let paymentPersisted = false;
     try {
-      const payment = await db.Payment.create({
-        orderId: order.id,
-        amount: order.total,
-        method: "bank_transfer",
-        reference: req.body.reference || req.body.customerReference,
-        status: "submitted",
-        paymentSlipResourceId: paymentSlipResource?.id,
+      const payment = await db.sequelize.transaction(async (transaction) => {
+        const lockedOrder = await db.Order.findOne({ where: { id: req.params.id, userId: req.user.sub }, transaction, lock: transaction.LOCK.UPDATE });
+        if (!lockedOrder) throw new ApiError(404, "Order not found");
+        const existingSubmitted = await db.Payment.findOne({ where: { orderId: lockedOrder.id, status: "submitted" }, transaction, lock: transaction.LOCK.UPDATE });
+        if (existingSubmitted) throw new ApiError(409, "Payment is already under review");
+        const createdPayment = await db.Payment.create({
+          orderId: lockedOrder.id,
+          amount: lockedOrder.total,
+          method: "bank_transfer",
+          reference: req.body.reference || req.body.customerReference,
+          status: "submitted",
+          paymentSlipResourceId: paymentSlipResource?.id,
+        }, { transaction });
+        // Receipt submission moves the Order into a distinct review stage.
+        // This keeps the student and staff views aligned without granting access
+        // until a staff member verifies the payment.
+        const fromStatus = lockedOrder.status;
+        await lockedOrder.update({ status: "awaiting_payment", paymentStatus: "pending", paymentMethod: "bank_transfer" }, { transaction });
+        await db.OrderStatusHistory.create({ orderId: lockedOrder.id, fromStatus, toStatus: "awaiting_payment", paymentStatus: "pending", actorUserId: req.user.sub, reason: "payment_receipt_submitted" }, { transaction });
+        await queueStudentPaymentSms({ order: lockedOrder, actorUserId: req.user.sub, eventKey: `RECEIPT_RECEIVED:${createdPayment.id}`, text: receiptReceivedSmsText(lockedOrder), transaction });
+        return createdPayment;
       });
-      // Receipt submission moves the Order into a distinct review stage.
-      // This keeps the student and staff views aligned without granting access
-      // until a staff member verifies the payment.
-      const fromStatus = order.status;
-      await order.update({ status: "awaiting_payment", paymentStatus: "pending", paymentMethod: "bank_transfer" });
-      await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "awaiting_payment", paymentStatus: "pending", actorUserId: req.user.sub, reason: "payment_receipt_submitted" });
+      paymentPersisted = true;
       send(res, payment, 201);
     } catch (error) {
-      if (paymentSlipResource) {
+      if (!paymentPersisted && paymentSlipResource) {
         await uploadStorage.deletePrivateFile(paymentSlipResource.storageKey).catch(() => undefined);
         await paymentSlipResource.destroy().catch(() => undefined);
       }

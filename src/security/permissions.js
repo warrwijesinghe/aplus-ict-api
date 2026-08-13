@@ -12,6 +12,7 @@ export const PERMISSIONS = Object.freeze({
   ASSIGNMENTS_READ: "assignments.read", ASSIGNMENTS_GRADE: "assignments.grade", ORDERS_READ: "orders.read", PAYMENTS_READ: "payments.read", PAYMENTS_CONFIRM: "payments.confirm", PAYMENTS_REJECT: "payments.reject", PAYMENTS_VIEW: "payments.view", PAYMENTS_RECONCILE: "payments.reconcile", PAYMENTS_VIEW_EVENTS: "payments.view_events",
   PRODUCTS_VIEW: "products.view", PRODUCTS_CREATE: "products.create", PRODUCTS_UPDATE: "products.update", PRODUCTS_PUBLISH: "products.publish", PRODUCTS_ARCHIVE: "products.archive", ORDERS_VIEW: "orders.view", ORDERS_MANAGE: "orders.manage", ORDERS_VERIFY_PAYMENT: "orders.verify_payment", ENTITLEMENTS_VIEW: "entitlements.view", ENTITLEMENTS_GRANT: "entitlements.grant", ENTITLEMENTS_REVOKE: "entitlements.revoke",
   EDUCATORS_READ: "educators.read", EDUCATORS_ASSIGN: "educators.assign", ROLES_READ: "roles.read", ROLES_MANAGE: "roles.manage", SETTINGS_READ: "settings.read", SETTINGS_MANAGE: "settings.manage", AUDIT_READ: "audit.read",
+  SMS_READ: "sms.read", SMS_SEND: "sms.send", SMS_RESEND: "sms.resend",
 });
 
 export const permissionCatalogue = Object.values(PERMISSIONS).map((code) => {

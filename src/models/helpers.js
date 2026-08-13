@@ -69,6 +69,9 @@ const tableNames = Object.freeze({
   ActivityPrerequisite: "activity_prerequisites",
   TeacherActivityApproval: "teacher_activity_approvals",
   TeacherGradeComment: "teacher_grade_comments",
+  SmsMessage: "sms_messages",
+  SmsMessageAttempt: "sms_message_attempts",
+  SmsInboundMessage: "sms_inbound_messages",
 });
 
 export const defineModel = (sequelize, name, fields, options = {}) =>
