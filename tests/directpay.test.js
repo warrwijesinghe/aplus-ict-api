@@ -1,9 +1,21 @@
 import request from "supertest";
 import { app } from "../src/app.js";
-import { directPayHealth } from "../src/modules/integrations/directpay/directpay.service.js";
+import { directPayHealth, normalizeDirectPaySriLankanMobile } from "../src/modules/integrations/directpay/directpay.service.js";
 import { parseConfirmationPayload } from "../src/modules/integrations/directpay/directpay.validation.js";
 
 describe("DirectPay one-time payment foundation", () => {
+  test.each([
+    ["0762305837", "+94762305837"],
+    ["+94762305837", "+94762305837"],
+    ["94762305837", "+94762305837"],
+    ["  0762305837  ", "+94762305837"],
+    ["0112345678", null],
+    ["", null],
+    [null, null],
+  ])("normalizes DirectPay Sri Lankan mobile %p", (input, expected) => {
+    expect(normalizeDirectPaySriLankanMobile(input)).toBe(expected);
+  });
+
   it("reports disabled by default without revealing configuration", () => {
     expect(directPayHealth({ enabled: false, environment: "development" })).toEqual({ status: "disabled", environment: "development", enabled: false });
   });

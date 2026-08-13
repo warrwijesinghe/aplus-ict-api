@@ -12,6 +12,14 @@ const safeMessage = (value) => String(value || "").slice(0, 240);
 const reference = () => `DP${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(5).toString("hex").toUpperCase()}`.slice(0, 20);
 const eventHash = (data) => crypto.createHash("sha256").update(JSON.stringify(data)).digest("hex");
 
+export const normalizeDirectPaySriLankanMobile = (value) => {
+  const compact = String(value || "").trim().replace(/[\s()-]/g, "");
+  const local = compact.replace(/^\+/, "");
+  const national = /^0(7\d{8})$/.exec(local)?.[1] || /^94(7\d{8})$/.exec(local)?.[1];
+  if (!national) return null;
+  return `+94${national}`;
+};
+
 export const directPayHealth = (config = getDirectPayConfig()) => !config.enabled
   ? { status: "disabled", environment: config.environment, enabled: false }
   : config.merchantId ? { status: "ready", environment: config.environment, enabled: true } : { status: "incomplete", environment: config.environment, enabled: true, missing: ["DIRECTPAY_MERCHANT_ID"] };
@@ -24,10 +32,12 @@ export const initiateDirectPay = async (userId, orderId, idempotencyKey, config 
     if (!["payment_pending", "pending", "awaiting_payment"].includes(order.status) || !["unpaid", "pending"].includes(order.paymentStatus) || (order.expiresAt && new Date(order.expiresAt) <= new Date())) throw new ApiError(409, "Order is not eligible for payment");
     const amount = money(order.total);
     if (order.currency !== "LKR" || !amount) throw new ApiError(422, "Only valid LKR orders can be paid with DirectPay");
+    const customerMobile = normalizeDirectPaySriLankanMobile(order.User?.StudentProfile?.mobileNumber || order.User?.StudentProfile?.whatsAppNumber);
+    if (!customerMobile) throw new ApiError(422, "Please add a valid Sri Lankan mobile number to your profile before making a card payment.");
     let payment = await db.PaymentTransaction.findOne({ where: { orderId, provider: "directpay", status: { [Op.in]: activeStatuses } }, transaction, lock: transaction.LOCK.UPDATE });
     if (!payment) payment = await db.PaymentTransaction.create({ orderId, provider: "directpay", merchantReference: reference(), idempotencyKey: `${order.id}:${idempotencyKey}`, status: "customer_action_required", currency: order.currency, amount, requestAmount: amount, initiatedAt: new Date() }, { transaction });
     const description = (order.OrderItems || []).map((item) => item.productNameSnapshot || item.name).filter(Boolean).join(", ").slice(0, 100) || `A Plus ICT order ${order.orderNumber}`;
-    return { payment, checkout: { merchantId: config.merchantId, reference: payment.merchantReference, amount, currency: order.currency, description, customerEmail: order.User?.email || "", customerMobile: order.User?.StudentProfile?.mobileNumber || order.User?.StudentProfile?.whatsAppNumber || "" } };
+    return { payment, checkout: { merchantId: config.merchantId, reference: payment.merchantReference, amount, currency: order.currency, description, customerEmail: order.User?.email || "", customerMobile } };
   });
 };
 
