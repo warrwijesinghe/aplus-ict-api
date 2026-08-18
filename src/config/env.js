@@ -39,6 +39,12 @@ export const env = Object.freeze({
   resourceArchiveRetentionDays: Number(process.env.RESOURCE_ARCHIVE_RETENTION_DAYS || 90),
   paymentSlipRetentionDays: Number(process.env.PAYMENT_SLIP_RETENTION_DAYS || 2555),
   assignmentSubmissionRetentionDays: Number(process.env.ASSIGNMENT_SUBMISSION_RETENTION_DAYS || 730),
+  reviewLogin: {
+    enabled: (process.env.REVIEW_LOGIN_ENABLED || "false").toLowerCase() === "true",
+    email: String(process.env.REVIEW_LOGIN_EMAIL || "").trim().toLowerCase(),
+    passwordHash: process.env.REVIEW_LOGIN_PASSWORD_HASH || "",
+    courseTrackId: String(process.env.REVIEW_COURSE_TRACK_ID || "").trim(),
+  },
   sms: {
     enabled: (process.env.SMS_ENABLED || "false").toLowerCase() === "true",
     username: process.env.SMS_USERNAME || "",

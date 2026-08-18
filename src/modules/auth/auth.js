@@ -1,10 +1,12 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import rateLimit from "express-rate-limit";
 import { env } from "../../config/env.js";
 import { db } from "../../models/index.js";
 import { ApiError, asyncHandler } from "../../core/errors.js";
 import { attachAuthorization, getAuthorization } from "../../security/authorization.js";
+import { hasValidReviewerCredentials } from "./reviewer-credentials.js";
 // Persist only a refresh-token hash; the original token cannot be recovered from the database.
 const hash = (x) => crypto.createHash("sha256").update(x).digest("hex");
 const publicUser = (user, authorization = {}) => ({
@@ -81,6 +83,33 @@ export const authRoutes = (router) => {
         !(await bcrypt.compare(password, user.passwordHash))
       )
         throw new ApiError(401, "Invalid credentials");
+      res.json({ data: await issue(user, res) });
+    }),
+  );
+  // This endpoint is deliberately separate from student Google sign-in. It is
+  // available only to the single, server-configured review account and shares
+  // the ordinary JWT and refresh-cookie session implementation.
+  router.post(
+    "/auth/reviewer-login",
+    rateLimit({
+      windowMs: 15 * 60e3,
+      limit: 10,
+      skipSuccessfulRequests: true,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: { message: "Too many review sign-in attempts. Please try again later." } },
+    }),
+    asyncHandler(async (req, res) => {
+      if (!env.reviewLogin.enabled)
+        throw new ApiError(503, "Review access is currently unavailable.");
+
+      if (!(await hasValidReviewerCredentials({ ...req.body, config: env.reviewLogin }))) {
+        throw new ApiError(401, "Invalid review credentials.");
+      }
+
+      const user = await db.User.findOne({ where: { email: env.reviewLogin.email, role: "student" } });
+      if (!user || user.status !== "active")
+        throw new ApiError(401, "Invalid review credentials.");
       res.json({ data: await issue(user, res) });
     }),
   );
