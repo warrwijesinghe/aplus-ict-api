@@ -46,7 +46,6 @@ Normal students continue to use Google sign-in only. A temporary, restricted stu
 REVIEW_LOGIN_ENABLED=true
 REVIEW_LOGIN_EMAIL=payhere-review@aplusict.lk
 REVIEW_LOGIN_PASSWORD_HASH=<bcrypt-hash>
-REVIEW_COURSE_TRACK_ID=<published-course-track-uuid>
 ```
 
 Generate the hash on a secure machine and put only the output in the API environment:
@@ -56,7 +55,7 @@ npm run generate-password-hash -- "TemporaryPasswordHere"
 npm run reviewer:setup
 ```
 
-`reviewer:setup` is idempotent: it creates/reconciles the restricted student, its complete review profile, a manual course enrolment, and active premium-lesson entitlements for the selected course track. It creates no order, payment, PayHere transaction, or payment report entry. Use `npm run reviewer:create` to create/reconcile only the account. Set `REVIEW_LOGIN_ENABLED=false` and restart the API to disable sign-in after approval; the account and its access records are retained.
+`reviewer:setup` is idempotent: it creates/reconciles the restricted student, its complete review profile, manual enrolments for every published public active course track, and active premium-lesson entitlements for those tracks. It creates no order, payment, PayHere transaction, or payment report entry. Use `npm run reviewer:create` to create/reconcile only the account. Set `REVIEW_LOGIN_ENABLED=false` and restart the API to disable sign-in after approval; the account and its access records are retained.
 
 ## Public resource library
 

@@ -20,9 +20,6 @@ const reviewerProfile = {
 export const setupReviewer = async ({ userOnly = false } = {}) => {
   if (!env.reviewLogin.email)
     throw new ApiError(422, "REVIEW_LOGIN_EMAIL must be configured");
-  if (!userOnly && !env.reviewLogin.courseTrackId)
-    throw new ApiError(422, "REVIEW_COURSE_TRACK_ID must be configured");
-
   return db.sequelize.transaction(async (transaction) => {
     const [user] = await db.User.findOrCreate({
       where: { email: env.reviewLogin.email },
@@ -40,26 +37,32 @@ export const setupReviewer = async ({ userOnly = false } = {}) => {
     if (profile.profileStatus !== "complete" || !profile.fullName)
       await profile.update(reviewerProfile, { transaction });
 
-    if (userOnly) return { user, courseTrack: null, entitlementCount: 0 };
-    const courseTrack = await db.CourseTrack.findOne({ where: { id: env.reviewLogin.courseTrackId, status: "published", isPublic: true }, transaction });
-    if (!courseTrack) throw new ApiError(404, "Configured review course track was not found or is not published");
-    const [enrolment] = await db.Enrolment.findOrCreate({
-      where: { userId: user.id, courseTrackId: courseTrack.id },
-      defaults: { userId: user.id, courseId: courseTrack.courseId, courseTrackId: courseTrack.id, status: "active", source: "manual", enrolledAt: new Date(), lastAccessedAt: new Date() },
+    if (userOnly) return { user, courseTrackCount: 0, entitlementCount: 0 };
+    const courseTracks = await db.CourseTrack.findAll({
+      where: { status: "published", isPublic: true, availabilityStatus: "active" },
       transaction,
     });
-    if (enrolment.status !== "active" || enrolment.source !== "manual")
-      await enrolment.update({ status: "active", source: "manual", unenrolledAt: null }, { transaction });
-
-    const lessons = await db.Lesson.findAll({ where: { trackId: courseTrack.id, status: "published" }, transaction });
-    for (const lesson of lessons) {
-      const [entitlement] = await db.Entitlement.findOrCreate({
-        where: { userId: user.id, sourceType: "admin", sourceId: user.id, lessonId: lesson.id, entitlementType: "lesson_premium_access" },
-        defaults: { userId: user.id, entitlementType: "lesson_premium_access", courseId: courseTrack.courseId, courseTrackId: courseTrack.id, lessonId: lesson.id, status: "active", sourceType: "admin", sourceId: user.id, startsAt: new Date() },
+    let entitlementCount = 0;
+    for (const courseTrack of courseTracks) {
+      const [enrolment] = await db.Enrolment.findOrCreate({
+        where: { userId: user.id, courseTrackId: courseTrack.id },
+        defaults: { userId: user.id, courseId: courseTrack.courseId, courseTrackId: courseTrack.id, status: "active", source: "manual", enrolledAt: new Date(), lastAccessedAt: new Date() },
         transaction,
       });
-      if (entitlement.status !== "active") await entitlement.update({ status: "active", endsAt: null, revokedAt: null }, { transaction });
+      if (enrolment.status !== "active" || enrolment.source !== "manual")
+        await enrolment.update({ status: "active", source: "manual", unenrolledAt: null }, { transaction });
+
+      const lessons = await db.Lesson.findAll({ where: { trackId: courseTrack.id, status: "published" }, transaction });
+      for (const lesson of lessons) {
+        const [entitlement] = await db.Entitlement.findOrCreate({
+          where: { userId: user.id, sourceType: "admin", sourceId: user.id, lessonId: lesson.id, entitlementType: "lesson_premium_access" },
+          defaults: { userId: user.id, entitlementType: "lesson_premium_access", courseId: courseTrack.courseId, courseTrackId: courseTrack.id, lessonId: lesson.id, status: "active", sourceType: "admin", sourceId: user.id, startsAt: new Date() },
+          transaction,
+        });
+        if (entitlement.status !== "active") await entitlement.update({ status: "active", endsAt: null, revokedAt: null }, { transaction });
+        entitlementCount += 1;
+      }
     }
-    return { user, courseTrack, entitlementCount: lessons.length };
+    return { user, courseTrackCount: courseTracks.length, entitlementCount };
   });
 };

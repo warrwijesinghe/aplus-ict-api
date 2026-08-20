@@ -43,7 +43,6 @@ export const env = Object.freeze({
     enabled: (process.env.REVIEW_LOGIN_ENABLED || "false").toLowerCase() === "true",
     email: String(process.env.REVIEW_LOGIN_EMAIL || "").trim().toLowerCase(),
     passwordHash: process.env.REVIEW_LOGIN_PASSWORD_HASH || "",
-    courseTrackId: String(process.env.REVIEW_COURSE_TRACK_ID || "").trim(),
   },
   sms: {
     enabled: (process.env.SMS_ENABLED || "false").toLowerCase() === "true",
