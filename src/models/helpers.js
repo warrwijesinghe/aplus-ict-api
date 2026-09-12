@@ -11,6 +11,7 @@ export const id = {
 // of enabling Sequelize's `underscored` option, which changes column names too.
 const tableNames = Object.freeze({
   User: "users",
+  PhoneChallenge: "phone_challenges",
   RefreshToken: "refresh_tokens",
   Category: "categories",
   AcademicLevel: "academic_levels",

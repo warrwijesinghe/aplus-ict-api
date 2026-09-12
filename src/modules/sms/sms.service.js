@@ -134,8 +134,8 @@ export const receiveSms = async (input) => {
 };
 
 const parseGatewayResponse = (response, body) => {
-  const code = body.match(/\b(?:200|1[5-7]\d)\b/)?.[0] || (response.ok ? "200" : String(response.status));
-  return { code, response: clip(body, 2000), accepted: code === "200" };
+  const code = body.match(/\b(?:200|1[5-7]\d)\b/)?.[0] || "unknown";
+  return { code, response: clip(body, 2000), accepted: response.ok && code === "200" };
 };
 
 export const sendToMobitel = async (message, config, fetchImpl = fetch) => {

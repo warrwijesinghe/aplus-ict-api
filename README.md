@@ -13,34 +13,15 @@ node scripts/bootstrap-admin.js admin@example.com "replace-with-a-strong-passwor
 npm run dev
 ```
 
-## Google student sign-in
+## Student phone sign-in
 
-Student sign-in uses a Google OAuth **Web application** client. Before trying the
-Google button, create the client in Google Cloud and add this exact authorised
-redirect URI for local development:
+Students register with a Sri Lankan mobile number, verify an SMS OTP, then set a password. Sign-in uses phone/password; password reset uses a fresh SMS OTP. Configure the existing Mobitel SMS credentials and run the phone authentication migration before deploying this version.
 
-~~~
-http://localhost:4000/api/v1/auth/google/callback
-~~~
-
-Then set these values in your local .env file. Do not commit the secret or put
-it in the Web application's .env file.
-
-~~~dotenv
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback
-WEB_LOGIN_SUCCESS_URL=http://localhost:5173/login/success
-~~~
-
-Restart npm run dev in aplus-ict-api after changing .env. In production,
-register the HTTPS API callback URL for that environment and update
-GOOGLE_CALLBACK_URL, WEB_LOGIN_SUCCESS_URL, and CORS_ORIGINS to match it.
-Google requires the callback URL to match the registered redirect URI exactly.
+See [docs/PHONE_AUTHENTICATION.md](docs/PHONE_AUTHENTICATION.md) for endpoints, security limits, deployment, and assigning verified login numbers to existing Google students while retaining their learning and purchases.
 
 ## Payment Provider Review Access
 
-Normal students continue to use Google sign-in only. A temporary, restricted student account can be enabled for an authorized payment-provider review without creating an email/password registration flow.
+Normal students use phone/password sign-in. A temporary, restricted student account can be enabled for an authorized payment-provider review without creating an email/password registration flow.
 
 ```dotenv
 REVIEW_LOGIN_ENABLED=true

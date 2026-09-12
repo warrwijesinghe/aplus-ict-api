@@ -18,6 +18,7 @@ export const getAuthorization = async (userId) => {
 
 export const attachAuthorization = asyncHandler(async (req, _res, next) => {
   const current = await getAuthorization(req.user.sub);
+  if ((req.user.ver || 0) !== (current.user.authVersion || 0)) throw new ApiError(401, "Session expired. Please sign in again.");
   req.user = { ...req.user, sub: current.user.id, role: current.role, roles: current.roles, permissions: current.permissions };
   next();
 });

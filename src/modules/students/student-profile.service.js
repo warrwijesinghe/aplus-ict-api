@@ -40,7 +40,10 @@ export const profileInput = (body = {}) => {
   return values;
 };
 
-export const getStudentProfile = async (userId) => profileView(await db.StudentProfile.findOne({ where: { userId } }));
+export const getStudentProfile = async (userId) => {
+  const [profile, user] = await Promise.all([db.StudentProfile.findOne({ where: { userId } }), db.User.findByPk(userId)]);
+  return { ...profileView(profile), email: user?.email || "" };
+};
 
 export const requireCompletedProfile = async (userId) => {
   // Student profile details are only collected from student accounts. Staff
@@ -55,10 +58,20 @@ export const requireCompletedProfile = async (userId) => {
 
 export const saveStudentProfile = async (userId, body) => {
   const values = profileInput(body);
+  if (body.email !== undefined) {
+    if (typeof body.email !== "string" || body.email.trim().length > 254 || (body.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email.trim())))
+      throw new ApiError(422, "Enter a valid contact email address.");
+    const email = body.email.trim().toLowerCase() || null;
+    const user = await db.User.findByPk(userId);
+    if (!user || user.role !== "student") throw new ApiError(403, "Only students can update this profile.");
+    const existing = email && await db.User.findOne({ where: { email } });
+    if (existing && existing.id !== userId) throw new ApiError(422, "This contact email cannot be used. Please use another address or contact support.");
+    await user.update({ email });
+  }
   if (values.preferredMedium && !(await db.Medium.findOne({ where: { code: values.preferredMedium, isActive: true } }))) throw new ApiError(422, "preferredMedium must be an active Medium");
   const [profile, created] = await db.StudentProfile.findOrCreate({ where: { userId }, defaults: { ...values, preferredMedium: values.preferredMedium || "sinhala" } });
   if (!created) await profile.update(values);
   const complete = profileComplete(profile);
   await profile.update({ profileStatus: complete ? "complete" : "incomplete", completedAt: complete ? profile.completedAt || new Date() : null });
-  return profileView(profile);
+  return getStudentProfile(userId);
 };

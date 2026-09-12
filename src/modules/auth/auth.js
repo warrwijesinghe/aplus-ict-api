@@ -7,11 +7,13 @@ import { db } from "../../models/index.js";
 import { ApiError, asyncHandler } from "../../core/errors.js";
 import { attachAuthorization, getAuthorization } from "../../security/authorization.js";
 import { hasValidReviewerCredentials } from "./reviewer-credentials.js";
+import { phoneAuth } from "./phone-auth.service.js";
 // Persist only a refresh-token hash; the original token cannot be recovered from the database.
 const hash = (x) => crypto.createHash("sha256").update(x).digest("hex");
 const publicUser = (user, authorization = {}) => ({
   id: user.id,
   email: user.email,
+  phoneNumber: user.phoneNumber || null,
   name: user.name,
   role: authorization.role || user.role,
   roles: authorization.roles || [user.role],
@@ -21,14 +23,14 @@ const publicUser = (user, authorization = {}) => ({
 const issue = async (user, res) => {
   const authorization = await getAuthorization(user.id);
   const accessToken = jwt.sign(
-    { sub: user.id, role: authorization.role },
+    { sub: user.id, role: authorization.role, ver: user.authVersion || 0 },
     env.accessSecret,
     { expiresIn: "15m" },
   );
   const refresh = jwt.sign(
-    { sub: user.id, type: "refresh" },
+    { sub: user.id, type: "refresh", ver: user.authVersion || 0 },
     env.refreshSecret,
-    { expiresIn: "30d" },
+    { expiresIn: "30d", jwtid: crypto.randomUUID() },
   );
   await db.RefreshToken.create({
     userId: user.id,
@@ -56,20 +58,31 @@ export const authenticate = asyncHandler(async (req, res, next) => {
 
 // Public pages may have a mix of free and paid entries. This middleware accepts
 // anonymous visitors but records the current user when a valid token is supplied.
-export const optionallyAuthenticate = (req, res, next) => {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/, "");
-  if (!token) return next();
-  try {
-    req.user = jwt.verify(token, env.accessSecret);
-    return next();
-  } catch {
-    return next(new ApiError(401, "Invalid or expired access token"));
-  }
-};
+export const optionallyAuthenticate = asyncHandler(async (req, res, next) => {
+  if (!req.headers.authorization) return next();
+  return authenticate(req, res, next);
+});
 export const authorize = (...roles) => (req, _res, next) =>
   roles.includes(req.user.role) ? next() : next(new ApiError(403, "Insufficient permission"));
 export const authRoutes = (router) => {
-  // Admin credentials are platform-managed. Student authentication is Google-only.
+  const limit = (count, minutes = 15) => rateLimit({
+    windowMs: minutes * 60_000, limit: count, standardHeaders: true, legacyHeaders: false,
+    message: { error: { message: "Too many authentication attempts. Please try again later." } },
+  });
+  router.post("/auth/phone/otp", limit(20, 60), asyncHandler(async (req, res) =>
+    res.json({ data: await phoneAuth.requestOtp(req.body) })));
+  router.post("/auth/phone/verify", limit(30), asyncHandler(async (req, res) =>
+    res.json({ data: await phoneAuth.verifyOtp(req.body) })));
+  router.post("/auth/phone/register", limit(10), asyncHandler(async (req, res) =>
+    res.status(201).json({ data: await issue(await phoneAuth.register(req.body), res) })));
+  router.post("/auth/phone/login", limit(15), asyncHandler(async (req, res) =>
+    res.json({ data: await issue(await phoneAuth.login(req.body), res) })));
+  router.post("/auth/phone/reset-password", limit(10), asyncHandler(async (req, res) => {
+    await phoneAuth.resetPassword(req.body);
+    res.clearCookie("aplus_refresh", { path: "/api/v1/auth" });
+    res.json({ data: { ok: true } });
+  }));
+  // Admin credentials remain platform-managed.
   router.post(
     "/auth/admin/login",
     asyncHandler(async (req, res) => {
@@ -86,7 +99,7 @@ export const authRoutes = (router) => {
       res.json({ data: await issue(user, res) });
     }),
   );
-  // This endpoint is deliberately separate from student Google sign-in. It is
+  // This endpoint is deliberately separate from student phone sign-in. It is
   // available only to the single, server-configured review account and shares
   // the ordinary JWT and refresh-cookie session implementation.
   router.post(
@@ -113,136 +126,6 @@ export const authRoutes = (router) => {
       res.json({ data: await issue(user, res) });
     }),
   );
-  router.get(
-    "/auth/google",
-    asyncHandler(async (req, res) => {
-      // A server-side OAuth flow must have all three values. Checking them
-      // together prevents a confusing Google token-exchange failure later.
-      if (
-        !process.env.GOOGLE_CLIENT_ID ||
-        !process.env.GOOGLE_CLIENT_SECRET ||
-        !process.env.GOOGLE_CALLBACK_URL
-      )
-        throw new ApiError(501, "Google login is not configured");
-      // Bind the OAuth callback to the initiating browser and prevent CSRF.
-      const state = crypto.randomUUID();
-      res.cookie("aplus_google_state", state, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: env.nodeEnv === "production",
-        path: "/api/v1/auth",
-      });
-      const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-      url.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID);
-      url.searchParams.set("redirect_uri", process.env.GOOGLE_CALLBACK_URL);
-      url.searchParams.set("response_type", "code");
-      url.searchParams.set("scope", "openid email profile");
-      url.searchParams.set("state", state);
-      res.redirect(url.toString());
-    }),
-  );
-  router.get(
-    "/auth/google/callback",
-    asyncHandler(async (req, res) => {
-      if (
-        !process.env.GOOGLE_CLIENT_ID ||
-        !process.env.GOOGLE_CLIENT_SECRET ||
-        !process.env.GOOGLE_CALLBACK_URL
-      )
-        throw new ApiError(501, "Google login is not configured");
-      if (req.query.state !== req.cookies.aplus_google_state)
-        throw new ApiError(401, "Invalid OAuth state");
-      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code: req.query.code,
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: process.env.GOOGLE_CALLBACK_URL,
-          grant_type: "authorization_code",
-        }),
-      });
-      const tokens = await tokenResponse.json();
-      if (!tokenResponse.ok)
-        throw new ApiError(401, "Google token exchange failed");
-      // Ask Google's OpenID endpoint for the verified profile instead of trusting
-      // a locally decoded ID token whose signature has not been checked here.
-      const profileResponse = await fetch(
-        "https://openidconnect.googleapis.com/v1/userinfo",
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
-      );
-      const profile = await profileResponse.json();
-      if (
-        !profileResponse.ok ||
-        !profile?.email ||
-        !profile?.sub ||
-        profile.email_verified !== true
-      ) {
-        throw new ApiError(401, "A verified Google profile is required");
-      }
-
-      const user = await db.sequelize.transaction(async (transaction) => {
-        let identity = await db.GoogleIdentity.findOne({
-          where: { subject: profile.sub },
-          transaction,
-        });
-        let currentUser = identity
-          ? await db.User.findByPk(identity.userId, { transaction })
-          : await db.User.findOne({
-              where: { email: profile.email.toLowerCase() },
-              transaction,
-            });
-
-        if (currentUser?.status === "disabled")
-          throw new ApiError(401, "Account is unavailable");
-        if (!currentUser) {
-          currentUser = await db.User.create(
-            {
-              email: profile.email.toLowerCase(),
-              name: profile.name || "Student",
-              role: "student", // Compatibility field while role joins are adopted.
-            },
-            { transaction },
-          );
-          await db.StudentProfile.create(
-            { userId: currentUser.id, preferredMedium: "sinhala" },
-            { transaction },
-          );
-          const studentRole = await db.Role.findOne({
-            where: { code: "student" },
-            transaction,
-          });
-          if (studentRole) {
-            await db.UserRole.create(
-              { userId: currentUser.id, roleId: studentRole.id },
-              { transaction },
-            );
-          }
-        }
-        if (!identity) {
-          identity = await db.GoogleIdentity.create(
-            {
-              userId: currentUser.id,
-              subject: profile.sub,
-              emailAtLinkTime: profile.email.toLowerCase(),
-            },
-            { transaction },
-          );
-        } else {
-          await identity.update(
-            { emailAtLinkTime: profile.email.toLowerCase() },
-            { transaction },
-          );
-        }
-        return currentUser;
-      });
-      const result = await issue(user, res);
-      res.redirect(
-        `${process.env.WEB_LOGIN_SUCCESS_URL || "http://localhost:5173/login/success"}#access_token=${result.accessToken}`,
-      );
-    }),
-  );
   router.post(
     "/auth/refresh",
     asyncHandler(async (req, res) => {
@@ -261,6 +144,7 @@ export const authRoutes = (router) => {
         // Rotate refresh tokens to make the previous token single-use.
         await record.update({ revokedAt: new Date() });
         const user = await db.User.findByPk(decoded.sub);
+        if (!user || user.status !== "active" || (decoded.ver || 0) !== (user.authVersion || 0)) throw new Error();
         res.json({ data: await issue(user, res) });
       } catch {
         throw new ApiError(401, "Invalid refresh token");

@@ -6,6 +6,11 @@ const config = getSmsConfig({ SMS_ENABLED: "true", SMS_USERNAME: "user", SMS_PAS
 const response = (body, ok = true, status = 200) => ({ ok, status, text: async () => body });
 
 describe("Mobitel SMS gateway adapter", () => {
+  it("does not treat an HTTP error or an unrecognized body as SMS acceptance", async () => {
+    const message = { contentType: "standard", sender: "MIRACLE", recipient: "94771234567", text: "Hello", messageType: 0 };
+    expect((await sendToMobitel(message, config, async () => response("Service unavailable"))).accepted).toBe(false);
+    expect((await sendToMobitel(message, config, async () => response("200", false, 503))).accepted).toBe(false);
+  });
   it("normalizes common Sri Lankan mobile formats", () => {
     expect(normalizeSriLankanMobile("077 123 4567")).toBe("94771234567");
     expect(normalizeSriLankanMobile("+94-77-123-4567")).toBe("94771234567");

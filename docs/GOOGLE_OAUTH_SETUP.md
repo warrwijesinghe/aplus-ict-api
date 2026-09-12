@@ -1,4 +1,6 @@
-# Google student sign-in setup
+# Google student sign-in setup (retired)
+
+This document is historical. Google login has been removed; use [PHONE_AUTHENTICATION.md](PHONE_AUTHENTICATION.md) for the current SMS verification and password flow. Do not configure a new Google OAuth client for this version.
 
 The current sign-in page starts a server-side Google OAuth code flow. The API
 will intentionally return **Google login is not configured** until the required
