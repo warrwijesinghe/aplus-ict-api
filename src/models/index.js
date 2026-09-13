@@ -1,5 +1,6 @@
 import { sequelize } from "../config/database.js";
 import { defineUser } from "./user.model.js";
+import { definePhoneOtpChallenge } from "./phone-otp-challenge.model.js";
 import { defineRefreshToken } from "./refresh-token.model.js";
 import { defineCategory } from "./category.model.js";
 import { defineAcademicLevel } from "./academic-level.model.js";
@@ -43,6 +44,7 @@ import { defineSmsInboundMessage, defineSmsMessage, defineSmsMessageAttempt } fr
 
 // Individual model files own fields; this file owns initialization and relationships.
 export const User = defineUser(sequelize);
+export const PhoneOtpChallenge = definePhoneOtpChallenge(sequelize);
 export const RefreshToken = defineRefreshToken(sequelize);
 export const Category = defineCategory(sequelize);
 export const AcademicLevel = defineAcademicLevel(sequelize);
@@ -253,4 +255,5 @@ export const db = {
   Quiz, QuizQuestion, QuizRandomRule, QuizAttempt, QuizAttemptQuestion, QuizAnswer, QuizAnswerOption, QuizAnswerMatchingItem, QuizAnswerOrderingItem, QuizGrade,
   ActivityCompletion, ActivityPrerequisite, TeacherActivityApproval, TeacherGradeComment,
   SmsMessage, SmsMessageAttempt, SmsInboundMessage,
+  PhoneOtpChallenge,
 };

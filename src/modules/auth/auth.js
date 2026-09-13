@@ -5,8 +5,31 @@ import { env } from "../../config/env.js";
 import { db } from "../../models/index.js";
 import { ApiError, asyncHandler } from "../../core/errors.js";
 import { attachAuthorization, getAuthorization } from "../../security/authorization.js";
+import { assertSmsConfig } from "../sms/sms.config.js";
+import { normalizeSriLankanMobile, sendToMobitel } from "../sms/sms.service.js";
 // Persist only a refresh-token hash; the original token cannot be recovered from the database.
 const hash = (x) => crypto.createHash("sha256").update(x).digest("hex");
+const OTP_TTL_MS = 5 * 60e3;
+const OTP_RESEND_MS = 60e3;
+const OTP_MAX_ATTEMPTS = 5;
+const passwordIsValid = (value) =>
+  typeof value === "string" &&
+  Buffer.byteLength(value, "utf8") <= 72 &&
+  value.length >= 8 &&
+  /[A-Za-z]/.test(value) &&
+  /\d/.test(value);
+const otpCode = () => crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+const otpProof = (challenge) => jwt.sign(
+  { type: "phone-otp", challengeId: challenge.id, phoneNumber: challenge.phoneNumber, purpose: challenge.purpose },
+  env.accessSecret,
+  { expiresIn: "10m" },
+);
+const readOtpProof = (token, challenge, purpose) => {
+  try {
+    const proof = jwt.verify(token, env.accessSecret);
+    return proof.type === "phone-otp" && proof.challengeId === challenge.id && proof.phoneNumber === challenge.phoneNumber && proof.purpose === purpose;
+  } catch { return false; }
+};
 const publicUser = (user, authorization = {}) => ({
   id: user.id,
   email: user.email,
@@ -67,7 +90,92 @@ export const optionallyAuthenticate = (req, res, next) => {
 export const authorize = (...roles) => (req, _res, next) =>
   roles.includes(req.user.role) ? next() : next(new ApiError(403, "Insufficient permission"));
 export const authRoutes = (router) => {
-  // Admin credentials are platform-managed. Student authentication is Google-only.
+  router.post(
+    "/auth/phone/otp",
+    asyncHandler(async (req, res) => {
+      const { purpose } = req.body;
+      if (!["register", "reset"].includes(purpose))
+        throw new ApiError(422, "OTP purpose must be register or reset");
+      const phoneNumber = normalizeSriLankanMobile(req.body.phoneNumber);
+      const existing = await db.User.findOne({ where: { phoneNumber } });
+      if (purpose === "register" && existing) throw new ApiError(409, "A student account already uses this mobile number");
+      if (purpose === "reset" && !existing) throw new ApiError(404, "No student account uses this mobile number");
+      const latest = await db.PhoneOtpChallenge.findOne({ where: { phoneNumber, purpose }, order: [["createdAt", "DESC"]] });
+      if (latest && latest.resendAvailableAt > new Date())
+        throw new ApiError(429, "Please wait before requesting another code", { resendAfter: Math.ceil((latest.resendAvailableAt - Date.now()) / 1000) });
+      const code = otpCode();
+      const challenge = await db.PhoneOtpChallenge.create({ phoneNumber, purpose, codeHash: hash(code), expiresAt: new Date(Date.now() + OTP_TTL_MS), resendAvailableAt: new Date(Date.now() + OTP_RESEND_MS) });
+      const config = assertSmsConfig();
+      const gateway = await sendToMobitel({ sender: config.sender, recipient: phoneNumber, text: `A Plus ICT verification code: ${code}. It expires in 5 minutes.`, messageType: 0, contentType: "standard" }, config);
+      if (!gateway.accepted) {
+        await challenge.destroy();
+        throw new ApiError(503, "SMS delivery service could not accept the verification code");
+      }
+      res.status(201).json({ data: { challengeId: challenge.id, resendAfter: 60, message: "Verification code sent" } });
+    }),
+  );
+  router.post(
+    "/auth/phone/verify",
+    asyncHandler(async (req, res) => {
+      const { challengeId, code } = req.body;
+      if (!challengeId || !/^\d{6}$/.test(String(code || ""))) throw new ApiError(422, "A challenge ID and 6-digit code are required");
+      const challenge = await db.PhoneOtpChallenge.findByPk(challengeId);
+      if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) throw new ApiError(401, "The code is invalid or expired");
+      if (challenge.attempts >= OTP_MAX_ATTEMPTS) throw new ApiError(429, "Too many verification attempts; request a new code");
+      await challenge.increment("attempts");
+      if (!crypto.timingSafeEqual(Buffer.from(challenge.codeHash), Buffer.from(hash(String(code))))) throw new ApiError(401, "The code is invalid or expired");
+      await challenge.update({ verifiedAt: new Date() });
+      res.json({ data: { verificationToken: otpProof(challenge) } });
+    }),
+  );
+  router.post(
+    "/auth/phone/register",
+    asyncHandler(async (req, res) => {
+      const { challengeId, verificationToken, password } = req.body;
+      const name = String(req.body.name || "").trim();
+      if (!name || name.length > 120 || !passwordIsValid(password)) throw new ApiError(422, "Name and a password of 8-72 bytes containing a letter and number are required");
+      const challenge = await db.PhoneOtpChallenge.findByPk(challengeId);
+      if (!challenge || challenge.purpose !== "register" || !challenge.verifiedAt || challenge.consumedAt || challenge.expiresAt < new Date() || !readOtpProof(verificationToken, challenge, "register")) throw new ApiError(401, "Phone verification is invalid or expired");
+      const user = await db.sequelize.transaction(async (transaction) => {
+        const duplicate = await db.User.findOne({ where: { phoneNumber: challenge.phoneNumber }, transaction });
+        if (duplicate) throw new ApiError(409, "A student account already uses this mobile number");
+        const student = await db.User.create({ name, phoneNumber: challenge.phoneNumber, passwordHash: await bcrypt.hash(password, 12), role: "student" }, { transaction });
+        await db.StudentProfile.create({ userId: student.id, fullName: name, mobileNumber: challenge.phoneNumber, preferredMedium: "sinhala" }, { transaction });
+        const studentRole = await db.Role.findOne({ where: { code: "student" }, transaction });
+        if (studentRole) await db.UserRole.create({ userId: student.id, roleId: studentRole.id }, { transaction });
+        await challenge.update({ consumedAt: new Date() }, { transaction });
+        return student;
+      });
+      res.status(201).json({ data: await issue(user, res) });
+    }),
+  );
+  router.post(
+    "/auth/phone/login",
+    asyncHandler(async (req, res) => {
+      const phoneNumber = normalizeSriLankanMobile(req.body.phoneNumber);
+      const user = await db.User.findOne({ where: { phoneNumber } });
+      if (!user || user.status === "disabled" || !user.passwordHash || !(await bcrypt.compare(req.body.password || "", user.passwordHash))) throw new ApiError(401, "Invalid mobile number or password");
+      res.json({ data: await issue(user, res) });
+    }),
+  );
+  router.post(
+    "/auth/phone/reset-password",
+    asyncHandler(async (req, res) => {
+      const { challengeId, verificationToken, password } = req.body;
+      if (!passwordIsValid(password)) throw new ApiError(422, "Use a password of 8-72 bytes containing a letter and number");
+      const challenge = await db.PhoneOtpChallenge.findByPk(challengeId);
+      if (!challenge || challenge.purpose !== "reset" || !challenge.verifiedAt || challenge.consumedAt || challenge.expiresAt < new Date() || !readOtpProof(verificationToken, challenge, "reset")) throw new ApiError(401, "Phone verification is invalid or expired");
+      await db.sequelize.transaction(async (transaction) => {
+        const user = await db.User.findOne({ where: { phoneNumber: challenge.phoneNumber }, transaction });
+        if (!user) throw new ApiError(404, "No student account uses this mobile number");
+        await user.update({ passwordHash: await bcrypt.hash(password, 12) }, { transaction });
+        await db.RefreshToken.update({ revokedAt: new Date() }, { where: { userId: user.id, revokedAt: null }, transaction });
+        await challenge.update({ consumedAt: new Date() }, { transaction });
+      });
+      res.json({ data: { ok: true } });
+    }),
+  );
+  // Admin credentials are platform-managed.
   router.post(
     "/auth/admin/login",
     asyncHandler(async (req, res) => {
