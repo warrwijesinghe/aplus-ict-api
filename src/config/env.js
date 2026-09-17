@@ -1,4 +1,9 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "node:path";
+
+// Always load this API's local environment file, even if the server was
+// launched from the workspace root by a process manager.
+dotenv.config({ path: path.resolve(import.meta.dirname, "../../.env") });
 const required = ["JWT_ACCESS_SECRET", "JWT_REFRESH_SECRET"];
 for (const name of required)
   if (!process.env[name] && process.env.NODE_ENV === "production")
@@ -41,12 +46,10 @@ export const env = Object.freeze({
   assignmentSubmissionRetentionDays: Number(process.env.ASSIGNMENT_SUBMISSION_RETENTION_DAYS || 730),
   sms: {
     enabled: (process.env.SMS_ENABLED || "false").toLowerCase() === "true",
-    username: process.env.SMS_USERNAME || "",
-    password: process.env.SMS_PASSWORD || "",
-    sender: process.env.SMS_SENDER || "",
+    url: process.env.TEXTLK_SMS_URL || "",
+    sender: process.env.TEXTLK_SENDER_ID || "",
     workerIntervalMs: Math.max(1000, Number(process.env.SMS_WORKER_INTERVAL_MS || 5000)),
     requestTimeoutMs: Math.max(1000, Number(process.env.SMS_REQUEST_TIMEOUT_MS || 15000)),
     sendingTimeoutMs: Math.max(60_000, Number(process.env.SMS_SENDING_TIMEOUT_MS || 300_000)),
-    inboundToken: process.env.SMS_INBOUND_TOKEN || "",
   },
 });

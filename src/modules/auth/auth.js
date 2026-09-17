@@ -1,24 +1,32 @@
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import { Op } from "sequelize";
 import { env } from "../../config/env.js";
 import { db } from "../../models/index.js";
 import { ApiError, asyncHandler } from "../../core/errors.js";
 import { attachAuthorization, getAuthorization } from "../../security/authorization.js";
 import { assertSmsConfig } from "../sms/sms.config.js";
-import { normalizeSriLankanMobile, sendToMobitel } from "../sms/sms.service.js";
+import { normalizeSriLankanMobile, sendSms } from "../sms/sms.service.js";
 // Persist only a refresh-token hash; the original token cannot be recovered from the database.
 const hash = (x) => crypto.createHash("sha256").update(x).digest("hex");
-const OTP_TTL_MS = 5 * 60e3;
-const OTP_RESEND_MS = 60e3;
-const OTP_MAX_ATTEMPTS = 5;
+const otpSetting = (name, fallback) => Math.max(1, Number(process.env[name] || fallback));
+const OTP_TTL_MS = () => otpSetting("OTP_TTL_SECONDS", 300) * 1000;
+const OTP_RESEND_MS = () => otpSetting("OTP_RESEND_COOLDOWN_SECONDS", 60) * 1000;
+const OTP_MAX_ATTEMPTS = () => otpSetting("OTP_MAX_VERIFY_ATTEMPTS", 5);
+const OTP_MAX_REQUESTS_PER_HOUR = () => otpSetting("OTP_MAX_REQUESTS_PER_HOUR", 5);
+const OTP_CODE_LENGTH = () => Math.min(9, otpSetting("OTP_CODE_LENGTH", 6));
 const passwordIsValid = (value) =>
   typeof value === "string" &&
   Buffer.byteLength(value, "utf8") <= 72 &&
   value.length >= 8 &&
   /[A-Za-z]/.test(value) &&
   /\d/.test(value);
-const otpCode = () => crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+const otpCode = () => crypto.randomInt(0, 10 ** OTP_CODE_LENGTH()).toString().padStart(OTP_CODE_LENGTH(), "0");
+const otpHash = (phoneNumber, code) => {
+  if (!process.env.OTP_HASH_SECRET) throw new ApiError(503, "Phone verification is not configured");
+  return crypto.createHmac("sha256", process.env.OTP_HASH_SECRET).update(`${phoneNumber}:${code}`).digest("hex");
+};
 const otpProof = (challenge) => jwt.sign(
   { type: "phone-otp", challengeId: challenge.id, phoneNumber: challenge.phoneNumber, purpose: challenge.purpose },
   env.accessSecret,
@@ -37,6 +45,7 @@ const publicUser = (user, authorization = {}) => ({
   role: authorization.role || user.role,
   roles: authorization.roles || [user.role],
   permissions: authorization.permissions || [],
+  phoneNumber: user.phoneNumber || null,
 });
 // Access tokens are short lived. The longer-lived refresh token stays in an HTTP-only cookie.
 const issue = async (user, res) => {
@@ -91,6 +100,59 @@ export const authorize = (...roles) => (req, _res, next) =>
   roles.includes(req.user.role) ? next() : next(new ApiError(403, "Insufficient permission"));
 export const authRoutes = (router) => {
   router.post(
+    "/auth/otp/request",
+    asyncHandler(async (req, res) => {
+      const phoneNumber = normalizeSriLankanMobile(req.body.phone || req.body.phoneNumber);
+      const now = new Date();
+      const latest = await db.PhoneOtpChallenge.findOne({ where: { phoneNumber, consumedAt: null }, order: [["createdAt", "DESC"]] });
+      if (latest?.resendAvailableAt > now)
+        throw new ApiError(429, "Please wait before requesting another code", { resendAfter: Math.ceil((latest.resendAvailableAt - now) / 1000) });
+      const hourlyCount = await db.PhoneOtpChallenge.count({ where: { phoneNumber, createdAt: { [Op.gte]: new Date(Date.now() - 3600e3) } } });
+      if (hourlyCount >= OTP_MAX_REQUESTS_PER_HOUR()) throw new ApiError(429, "Too many verification codes requested; try again later");
+      await db.PhoneOtpChallenge.update({ consumedAt: now }, { where: { phoneNumber, consumedAt: null } });
+      const code = otpCode();
+      const challenge = await db.PhoneOtpChallenge.create({ phoneNumber, purpose: "login", codeHash: otpHash(phoneNumber, code), expiresAt: new Date(Date.now() + OTP_TTL_MS()), resendAvailableAt: new Date(Date.now() + OTP_RESEND_MS()), requestIp: req.ip || null });
+      const result = await sendSms({ recipient: phoneNumber, message: `A Plus ICT verification code: ${code}. Valid for 5 minutes. Do not share this code.` }, assertSmsConfig());
+      if (!result.accepted) {
+        await challenge.destroy();
+        throw new ApiError(503, "SMS delivery service could not accept the verification code");
+      }
+      await challenge.update({ providerMessageId: result.providerMessageId });
+      res.status(201).json({ success: true, message: "Verification code sent.", expiresIn: OTP_TTL_MS() / 1000, resendAfter: OTP_RESEND_MS() / 1000 });
+    }),
+  );
+  router.post(
+    "/auth/otp/verify",
+    asyncHandler(async (req, res) => {
+      const phoneNumber = normalizeSriLankanMobile(req.body.phone || req.body.phoneNumber);
+      const code = String(req.body.otp || req.body.code || "");
+      if (!new RegExp(`^\\d{${OTP_CODE_LENGTH()}}$`).test(code)) throw new ApiError(422, `A ${OTP_CODE_LENGTH()}-digit code is required`);
+      const challenge = await db.PhoneOtpChallenge.findOne({ where: { phoneNumber, purpose: "login", consumedAt: null }, order: [["createdAt", "DESC"]] });
+      if (!challenge || challenge.expiresAt < new Date()) throw new ApiError(401, "The code is invalid or expired");
+      if (challenge.attempts >= OTP_MAX_ATTEMPTS()) throw new ApiError(429, "Maximum verification attempts reached; request a new code");
+      const actual = Buffer.from(otpHash(phoneNumber, code), "hex");
+      const expected = Buffer.from(challenge.codeHash, "hex");
+      if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+        await challenge.increment("attempts");
+        if (challenge.attempts + 1 >= OTP_MAX_ATTEMPTS()) await challenge.update({ consumedAt: new Date() });
+        throw new ApiError(401, "The code is incorrect");
+      }
+      const user = await db.sequelize.transaction(async (transaction) => {
+        await challenge.update({ consumedAt: new Date(), verifiedAt: new Date() }, { transaction });
+        let current = await db.User.findOne({ where: { phoneNumber }, transaction });
+        if (current?.status === "disabled") throw new ApiError(401, "Account is unavailable");
+        if (!current) {
+          current = await db.User.create({ phoneNumber, name: "A Plus ICT Student", role: "student", phoneVerifiedAt: new Date() }, { transaction });
+          await db.StudentProfile.create({ userId: current.id, mobileNumber: phoneNumber, preferredMedium: "sinhala" }, { transaction });
+          const studentRole = await db.Role.findOne({ where: { code: "student" }, transaction });
+          if (studentRole) await db.UserRole.create({ userId: current.id, roleId: studentRole.id }, { transaction });
+        } else if (!current.phoneVerifiedAt) await current.update({ phoneVerifiedAt: new Date() }, { transaction });
+        return current;
+      });
+      res.json({ data: await issue(user, res) });
+    }),
+  );
+  router.post(
     "/auth/phone/otp",
     asyncHandler(async (req, res) => {
       const { purpose } = req.body;
@@ -104,12 +166,14 @@ export const authRoutes = (router) => {
       if (latest && latest.resendAvailableAt > new Date())
         throw new ApiError(429, "Please wait before requesting another code", { resendAfter: Math.ceil((latest.resendAvailableAt - Date.now()) / 1000) });
       const code = otpCode();
-      const challenge = await db.PhoneOtpChallenge.create({ phoneNumber, purpose, codeHash: hash(code), expiresAt: new Date(Date.now() + OTP_TTL_MS), resendAvailableAt: new Date(Date.now() + OTP_RESEND_MS) });
+      const challenge = await db.PhoneOtpChallenge.create({ phoneNumber, purpose, codeHash: otpHash(phoneNumber, code), expiresAt: new Date(Date.now() + OTP_TTL_MS()), resendAvailableAt: new Date(Date.now() + OTP_RESEND_MS()) });
       const config = assertSmsConfig();
-      const gateway = await sendToMobitel({ sender: config.sender, recipient: phoneNumber, text: `A Plus ICT verification code: ${code}. It expires in 5 minutes.`, messageType: 0, contentType: "standard" }, config);
+      const gateway = await sendSms({ recipient: phoneNumber, message: `A Plus ICT verification code: ${code}. Valid for 5 minutes. Do not share this code.` }, config);
       if (!gateway.accepted) {
         await challenge.destroy();
-        throw new ApiError(503, "SMS delivery service could not accept the verification code");
+        // The gateway response can contain diagnostic text, but it may also
+        // echo provider metadata. Return only its numeric code to the client.
+        throw new ApiError(503, "SMS delivery service could not accept the verification code", { gatewayCode: gateway.code });
       }
       res.status(201).json({ data: { challengeId: challenge.id, resendAfter: 60, message: "Verification code sent" } });
     }),
@@ -121,9 +185,9 @@ export const authRoutes = (router) => {
       if (!challengeId || !/^\d{6}$/.test(String(code || ""))) throw new ApiError(422, "A challenge ID and 6-digit code are required");
       const challenge = await db.PhoneOtpChallenge.findByPk(challengeId);
       if (!challenge || challenge.consumedAt || challenge.expiresAt < new Date()) throw new ApiError(401, "The code is invalid or expired");
-      if (challenge.attempts >= OTP_MAX_ATTEMPTS) throw new ApiError(429, "Too many verification attempts; request a new code");
+      if (challenge.attempts >= OTP_MAX_ATTEMPTS()) throw new ApiError(429, "Too many verification attempts; request a new code");
       await challenge.increment("attempts");
-      if (!crypto.timingSafeEqual(Buffer.from(challenge.codeHash), Buffer.from(hash(String(code))))) throw new ApiError(401, "The code is invalid or expired");
+      if (!crypto.timingSafeEqual(Buffer.from(challenge.codeHash, "hex"), Buffer.from(otpHash(challenge.phoneNumber, String(code)), "hex"))) throw new ApiError(401, "The code is invalid or expired");
       await challenge.update({ verifiedAt: new Date() });
       res.json({ data: { verificationToken: otpProof(challenge) } });
     }),
@@ -190,136 +254,6 @@ export const authRoutes = (router) => {
       )
         throw new ApiError(401, "Invalid credentials");
       res.json({ data: await issue(user, res) });
-    }),
-  );
-  router.get(
-    "/auth/google",
-    asyncHandler(async (req, res) => {
-      // A server-side OAuth flow must have all three values. Checking them
-      // together prevents a confusing Google token-exchange failure later.
-      if (
-        !process.env.GOOGLE_CLIENT_ID ||
-        !process.env.GOOGLE_CLIENT_SECRET ||
-        !process.env.GOOGLE_CALLBACK_URL
-      )
-        throw new ApiError(501, "Google login is not configured");
-      // Bind the OAuth callback to the initiating browser and prevent CSRF.
-      const state = crypto.randomUUID();
-      res.cookie("aplus_google_state", state, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: env.nodeEnv === "production",
-        path: "/api/v1/auth",
-      });
-      const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-      url.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID);
-      url.searchParams.set("redirect_uri", process.env.GOOGLE_CALLBACK_URL);
-      url.searchParams.set("response_type", "code");
-      url.searchParams.set("scope", "openid email profile");
-      url.searchParams.set("state", state);
-      res.redirect(url.toString());
-    }),
-  );
-  router.get(
-    "/auth/google/callback",
-    asyncHandler(async (req, res) => {
-      if (
-        !process.env.GOOGLE_CLIENT_ID ||
-        !process.env.GOOGLE_CLIENT_SECRET ||
-        !process.env.GOOGLE_CALLBACK_URL
-      )
-        throw new ApiError(501, "Google login is not configured");
-      if (req.query.state !== req.cookies.aplus_google_state)
-        throw new ApiError(401, "Invalid OAuth state");
-      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code: req.query.code,
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          redirect_uri: process.env.GOOGLE_CALLBACK_URL,
-          grant_type: "authorization_code",
-        }),
-      });
-      const tokens = await tokenResponse.json();
-      if (!tokenResponse.ok)
-        throw new ApiError(401, "Google token exchange failed");
-      // Ask Google's OpenID endpoint for the verified profile instead of trusting
-      // a locally decoded ID token whose signature has not been checked here.
-      const profileResponse = await fetch(
-        "https://openidconnect.googleapis.com/v1/userinfo",
-        { headers: { Authorization: `Bearer ${tokens.access_token}` } },
-      );
-      const profile = await profileResponse.json();
-      if (
-        !profileResponse.ok ||
-        !profile?.email ||
-        !profile?.sub ||
-        profile.email_verified !== true
-      ) {
-        throw new ApiError(401, "A verified Google profile is required");
-      }
-
-      const user = await db.sequelize.transaction(async (transaction) => {
-        let identity = await db.GoogleIdentity.findOne({
-          where: { subject: profile.sub },
-          transaction,
-        });
-        let currentUser = identity
-          ? await db.User.findByPk(identity.userId, { transaction })
-          : await db.User.findOne({
-              where: { email: profile.email.toLowerCase() },
-              transaction,
-            });
-
-        if (currentUser?.status === "disabled")
-          throw new ApiError(401, "Account is unavailable");
-        if (!currentUser) {
-          currentUser = await db.User.create(
-            {
-              email: profile.email.toLowerCase(),
-              name: profile.name || "Student",
-              role: "student", // Compatibility field while role joins are adopted.
-            },
-            { transaction },
-          );
-          await db.StudentProfile.create(
-            { userId: currentUser.id, preferredMedium: "sinhala" },
-            { transaction },
-          );
-          const studentRole = await db.Role.findOne({
-            where: { code: "student" },
-            transaction,
-          });
-          if (studentRole) {
-            await db.UserRole.create(
-              { userId: currentUser.id, roleId: studentRole.id },
-              { transaction },
-            );
-          }
-        }
-        if (!identity) {
-          identity = await db.GoogleIdentity.create(
-            {
-              userId: currentUser.id,
-              subject: profile.sub,
-              emailAtLinkTime: profile.email.toLowerCase(),
-            },
-            { transaction },
-          );
-        } else {
-          await identity.update(
-            { emailAtLinkTime: profile.email.toLowerCase() },
-            { transaction },
-          );
-        }
-        return currentUser;
-      });
-      const result = await issue(user, res);
-      res.redirect(
-        `${process.env.WEB_LOGIN_SUCCESS_URL || "http://localhost:5173/login/success"}#access_token=${result.accessToken}`,
-      );
     }),
   );
   router.post(

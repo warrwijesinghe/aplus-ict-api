@@ -35,8 +35,8 @@ describe("transactional payment SMS", () => {
   });
 
   it("returns the existing outbox message when the same automated event is retried", async () => {
-    const previous = { SMS_ENABLED: process.env.SMS_ENABLED, SMS_USERNAME: process.env.SMS_USERNAME, SMS_PASSWORD: process.env.SMS_PASSWORD, SMS_SENDER: process.env.SMS_SENDER };
-    Object.assign(process.env, { SMS_ENABLED: "true", SMS_USERNAME: "user", SMS_PASSWORD: "password", SMS_SENDER: "APLUSICT" });
+    const previous = { SMS_ENABLED: process.env.SMS_ENABLED, TEXTLK_SMS_URL: process.env.TEXTLK_SMS_URL, TEXTLK_API_TOKEN: process.env.TEXTLK_API_TOKEN, TEXTLK_SENDER_ID: process.env.TEXTLK_SENDER_ID };
+    Object.assign(process.env, { SMS_ENABLED: "true", TEXTLK_SMS_URL: "https://textlk.test/send", TEXTLK_API_TOKEN: "test-token", TEXTLK_SENDER_ID: "A Plus ICT" });
     const findOrCreate = jest.spyOn(db.SmsMessage, "findOrCreate")
       .mockResolvedValueOnce([message, true])
       .mockResolvedValueOnce([message, false]);

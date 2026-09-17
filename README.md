@@ -5,38 +5,13 @@ The A Plus ICT API is the single Node.js/Express modular-monolith backend for th
 ## Local startup
 
 ```powershell
-copy .env.example .env
+# Create the ignored .env file with the required local/server values.
 npm install
 npm run db:migrate
 npm run db:seed
 node scripts/bootstrap-admin.js admin@example.com "replace-with-a-strong-password"
 npm run dev
 ```
-
-## Google student sign-in
-
-Student sign-in uses a Google OAuth **Web application** client. Before trying the
-Google button, create the client in Google Cloud and add this exact authorised
-redirect URI for local development:
-
-~~~
-http://localhost:4000/api/v1/auth/google/callback
-~~~
-
-Then set these values in your local .env file. Do not commit the secret or put
-it in the Web application's .env file.
-
-~~~dotenv
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:4000/api/v1/auth/google/callback
-WEB_LOGIN_SUCCESS_URL=http://localhost:5173/login/success
-~~~
-
-Restart npm run dev in aplus-ict-api after changing .env. In production,
-register the HTTPS API callback URL for that environment and update
-GOOGLE_CALLBACK_URL, WEB_LOGIN_SUCCESS_URL, and CORS_ORIGINS to match it.
-Google requires the callback URL to match the registered redirect URI exactly.
 
 ## Public resource library
 

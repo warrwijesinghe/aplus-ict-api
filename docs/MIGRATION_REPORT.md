@@ -18,7 +18,7 @@ After: one Express API with feature services and models, one MariaDB schema, one
 
 | Source | Useful functionality found | Decision | Destination / reason |
 | --- | --- | --- | --- |
-| Auth | users, roles, permissions, refresh tokens, Google OAuth state/identity, admin authentication | MIGRATE / REFACTOR | `auth`, `users`, `students`; Google-only student flow and admin password flow retain the useful split |
+| Auth | users, roles, permissions, refresh tokens and admin authentication | MIGRATE / REFACTOR | `auth`, `users`, `students`; phone-based student flow and admin password flow retain the useful split |
 | Content | subjects/categories, courses, media tracks, 13-lesson foundation, chapters/sections, publish ordering and public catalogue | MIGRATE / REFACTOR | `categories`, `courses`, `lessons`, `content`; simplified to A/L ICT first |
 | Learning | enrolments, lesson/activity progress, completion calculations and access checks | MIGRATE / REFACTOR | `learning`, `enrolments`, `entitlements`; local database services replace internal HTTP clients |
 | Commerce | products, orders, order items, payment status, manual confirmation and digital fulfilment | MIGRATE / REFACTOR | `commerce`, `orders`, `payments`, `entitlements`; one transaction grants lesson entitlements |
@@ -27,9 +27,9 @@ After: one Express API with feature services and models, one MariaDB schema, one
 
 ## Database and API changes
 
-`202607290001-create-modular-monolith.cjs` creates identity, catalogue, learning, commerce and resource tables. `202607290002-add-identity-students-and-content-progress.cjs` adds external Google identities, student profiles, many-to-many roles/permissions and section progress. Seeders establish A/L ICT with Sinhala and English tracks and 13 lessons each.
+The identity, catalogue, learning, commerce and resource migrations establish student profiles, many-to-many roles/permissions and section progress. Seeders establish A/L ICT with Sinhala and English tracks and 13 lessons each.
 
-The API provides `/health`, `/ready`, and `/api/v1/*`. Core flows include Google sign-in, admin sign-in, published catalogue lookup, login-gated lesson retrieval, entitlement checks, progress writes, order creation, bank-transfer submission, manual confirmation, entitlement activation and protected resource content.
+The API provides `/health`, `/ready`, and `/api/v1/*`. Core flows include phone sign-in, admin sign-in, published catalogue lookup, login-gated lesson retrieval, entitlement checks, progress writes, order creation, bank-transfer submission, manual confirmation, entitlement activation and protected resource content.
 
 ## Active-project changes
 

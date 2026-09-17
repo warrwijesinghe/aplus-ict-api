@@ -1,27 +1,8 @@
 import { Op } from "sequelize";
 import { db } from "../../models/index.js";
 import { ApiError } from "../../core/errors.js";
-import { assertSmsConfig, MOBITEL_GATEWAYS } from "./sms.config.js";
+import { assertSmsConfig } from "./sms.config.js";
 
-const GATEWAY_MESSAGES = Object.freeze({
-  151: "Invalid gateway session",
-  152: "Gateway session is busy",
-  155: "SMS gateway service is halted",
-  156: "Other-network messaging is disabled",
-  157: "International messaging is disabled",
-  159: "Insufficient SMS credit",
-  160: "Message text is missing",
-  161: "Message exceeds the gateway length limit",
-  162: "Invalid message type",
-  164: "Invalid group",
-  165: "No recipients were supplied",
-  166: "Recipient list exceeds the gateway limit",
-  167: "Invalid recipient number",
-  168: "Invalid short code",
-  169: "Invalid sender alias",
-  170: "A recipient is blacklisted",
-  171: "A recipient is not whitelisted",
-});
 export const SMS_CATEGORIES = Object.freeze({
   general: "GENERAL",
   registration: "REG",
@@ -36,8 +17,8 @@ const clip = (value, length = 500) => clean(value).slice(0, length) || null;
 
 export const normalizeSriLankanMobile = (value) => {
   let number = compact(value).replace(/^\+/, "");
-  if (/^0\d{9}$/.test(number)) number = `94${number.slice(1)}`;
-  if (!/^94\d{9}$/.test(number))
+  if (/^07\d{8}$/.test(number)) number = `94${number.slice(1)}`;
+  if (!/^947\d{8}$/.test(number))
     throw new ApiError(422, "Recipient must be a Sri Lankan mobile number, for example 94771234567");
   return number;
 };
@@ -133,23 +114,18 @@ export const receiveSms = async (input) => {
   return db.SmsInboundMessage.create({ sender, recipient, message, receivedAt: new Date() });
 };
 
-const parseGatewayResponse = (response, body) => {
-  const code = body.match(/\b(?:200|1[5-7]\d)\b/)?.[0] || (response.ok ? "200" : String(response.status));
-  return { code, response: clip(body, 2000), accepted: code === "200" };
-};
-
-export const sendToMobitel = async (message, config, fetchImpl = fetch) => {
+export const sendSms = async ({ recipient, text, message }, config = assertSmsConfig(), fetchImpl = fetch) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
   try {
-    let response;
-    if (message.contentType === "multilingual") {
-      const params = new URLSearchParams({ m: message.text, r: message.recipient, a: message.sender, u: config.username, p: config.password, t: String(message.messageType) });
-      response = await fetchImpl(`${MOBITEL_GATEWAYS.multilingual}?${params.toString()}`, { method: "POST", signal: controller.signal });
-    } else {
-      response = await fetchImpl(MOBITEL_GATEWAYS.standard, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: config.username, password: config.password, from: message.sender, to: message.recipient, text: message.text, mesageType: message.messageType }), signal: controller.signal });
-    }
-    return parseGatewayResponse(response, await response.text());
+    const response = await fetchImpl(config.url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.apiToken}`, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient: normalizeSriLankanMobile(recipient), sender_id: config.sender, type: "plain", message: text || message }),
+      signal: controller.signal,
+    });
+    const body = await response.json().catch(() => ({}));
+    return { accepted: response.ok && body?.status === "success", code: String(response.status), response: clip(JSON.stringify(body), 2000), providerMessageId: body?.data?.uid || null };
   } finally {
     clearTimeout(timeout);
   }
@@ -174,14 +150,14 @@ export const processNextSms = async (config = assertSmsConfig(), fetchImpl = fet
   if (!message) return null;
   const completedAt = new Date();
   try {
-    const result = await sendToMobitel(message, config, fetchImpl);
+    const result = await sendSms(message, config, fetchImpl);
     if (result.accepted) {
       await db.SmsMessage.update({ status: "sent", acceptedAt: completedAt, gatewayCode: result.code, gatewayResponse: result.response, failureReason: null }, { where: { id: message.id } });
       await markAttempt(message.id, message.attemptCount, { status: "accepted", gatewayCode: result.code, gatewayResponse: result.response, completedAt });
       return { id: message.id, status: "sent" };
     }
-    const failureReason = GATEWAY_MESSAGES[result.code] || "SMS gateway rejected the message";
-    const retryable = result.code === "152" && message.attemptCount < message.maxAttempts;
+    const failureReason = "SMS gateway rejected the message";
+    const retryable = message.attemptCount < message.maxAttempts;
     await db.SmsMessage.update({ status: retryable ? "queued" : "failed", nextAttemptAt: retryable ? new Date(Date.now() + message.attemptCount * 5000) : message.nextAttemptAt, gatewayCode: result.code, gatewayResponse: result.response, failureReason, failedAt: retryable ? null : completedAt }, { where: { id: message.id } });
     await markAttempt(message.id, message.attemptCount, { status: "failed", gatewayCode: result.code, gatewayResponse: result.response, failureReason, completedAt });
     return { id: message.id, status: retryable ? "queued" : "failed" };

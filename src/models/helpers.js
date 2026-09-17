@@ -46,7 +46,6 @@ const tableNames = Object.freeze({
   Payment: "payments",
   PaymentTransaction: "payment_transactions",
   PaymentProviderEvent: "payment_provider_events",
-  GoogleIdentity: "google_identities",
   StudentProfile: "student_profiles",
   StudentCourseState: "student_course_states",
   StudentLearningHistory: "student_learning_history",

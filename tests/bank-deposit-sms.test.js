@@ -19,7 +19,7 @@ describe("bank deposit payment-detail SMS", () => {
     expect(bankAccounts).toHaveLength(4);
   });
 
-  it("keeps every bank's payment instruction within Mobitel's 160-character limit", () => {
+  it("keeps every bank's payment instruction within the transactional SMS length limit", () => {
     for (const account of bankAccounts)
       expect([...bankDepositSmsText({ orderNumber: "26080001", total: "1500.00" }, account)].length).toBeLessThanOrEqual(160);
   });

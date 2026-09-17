@@ -4,7 +4,7 @@ const { randomUUID } = require("crypto");
 
 // Imported from the owner-provided onsite list. Source-system passwords and
 // course/cohort fields are deliberately excluded: A Plus ICT students use
-// Google sign-in and this catalogue has no matching Robotics course track.
+// This catalogue has no matching Robotics course track.
 const students = Object.freeze([
   { name: "G.V.Sinura Sandali Vithanage Sinura", email: "mro2512-0001@miraclerobotics.lk" },
   { name: "K.A.D.Thenuda Thisath Thenuda", email: "mro2512-0002@miraclerobotics.lk" },

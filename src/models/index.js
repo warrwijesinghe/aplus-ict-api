@@ -22,7 +22,6 @@ import { defineOrderStatusHistory } from "./order-status-history.model.js";
 import { definePayment } from "./payment.model.js";
 import { definePaymentTransaction } from "./payment-transaction.model.js";
 import { definePaymentProviderEvent } from "./payment-provider-event.model.js";
-import { defineGoogleIdentity } from "./google-identity.model.js";
 import { defineStudentProfile } from "./student-profile.model.js";
 import { defineStudentCourseState } from "./student-course-state.model.js";
 import { defineStudentLearningHistory } from "./student-learning-history.model.js";
@@ -66,7 +65,6 @@ export const OrderStatusHistory = defineOrderStatusHistory(sequelize);
 export const Payment = definePayment(sequelize);
 export const PaymentTransaction = definePaymentTransaction(sequelize);
 export const PaymentProviderEvent = definePaymentProviderEvent(sequelize);
-export const GoogleIdentity = defineGoogleIdentity(sequelize);
 export const StudentProfile = defineStudentProfile(sequelize);
 export const StudentCourseState = defineStudentCourseState(sequelize);
 export const StudentLearningHistory = defineStudentLearningHistory(sequelize);
@@ -162,8 +160,6 @@ User.hasMany(StudentLearningHistory, { foreignKey: "userId" });
 StudentLearningHistory.belongsTo(User, { foreignKey: "userId" });
 CourseTrack.hasMany(StudentLearningHistory, { foreignKey: "courseTrackId" });
 StudentLearningHistory.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
-User.hasMany(GoogleIdentity, { foreignKey: "userId" });
-GoogleIdentity.belongsTo(User, { foreignKey: "userId" });
 User.belongsToMany(Role, { through: UserRole, foreignKey: "userId" });
 Role.belongsToMany(User, { through: UserRole, foreignKey: "roleId" });
 Role.belongsToMany(Permission, {
@@ -238,7 +234,6 @@ export const db = {
   Payment,
   PaymentTransaction,
   PaymentProviderEvent,
-  GoogleIdentity,
   StudentProfile,
   StudentCourseState,
   StudentLearningHistory,
