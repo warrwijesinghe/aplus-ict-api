@@ -30,6 +30,7 @@ export const validateAvailability = (body) => {
 };
 
 export const validateContentPayload = (body, kind) => {
+  if (kind === "lesson" && has(body, "landingPageContent")) validateLandingPageContent(body.landingPageContent);
   validateSlug(body.slug);
   validateAvailability(body);
   if (has(body, "status")) oneOf(body.status, CONTENT_STATUSES, "status");
@@ -48,3 +49,20 @@ export const validateContentPayload = (body, kind) => {
 };
 
 export const pick = (body, fields) => Object.fromEntries(fields.filter((field) => has(body, field)).map((field) => [field, body[field]]));
+
+export const validateLandingPageContent = (value) => {
+  if (value === null) return;
+  const invalid = () => { throw new ApiError(422, "Invalid landing page content: use text fields and up to 100 syllabus items with a title and description."); };
+  if (!value || typeof value !== "object" || Array.isArray(value)) invalid();
+  const textFields = ["heroDescription", "overview", "tutorialTitle", "tutorialDescription", "ctaTitle", "ctaDescription"];
+  if (Object.keys(value).some((key) => ![...textFields, "syllabus"].includes(key))) invalid();
+  for (const field of textFields) if (has(value, field) && (typeof value[field] !== "string" || value[field].length > 10000)) invalid();
+  if (has(value, "syllabus")) {
+    if (!Array.isArray(value.syllabus) || value.syllabus.length > 100) invalid();
+    for (const item of value.syllabus) {
+      if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).some((key) => !["title", "description"].includes(key))) invalid();
+      if (typeof item.title !== "string" || !item.title.trim() || item.title.length > 255) invalid();
+      if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 10000)) invalid();
+    }
+  }
+};

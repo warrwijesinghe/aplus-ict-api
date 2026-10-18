@@ -1,0 +1,58 @@
+[
+  {
+    "id": "13470308-7b60-479c-8232-72add912e084",
+    "slug": "grade-11-ict",
+    "description": "Consolidate O/L ICT learning through focused lessons, practical activities, and revision support for examination preparation.",
+    "shortDescriptionEn": "Upcoming Grade 11 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 11 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_11"
+  },
+  {
+    "id": "14b3fe39-c205-4f50-94ea-162aa2cb561b",
+    "slug": "grade-9-ict",
+    "description": "Prepare for upper-school ICT with stronger digital skills, clear concepts, and practical learning activities.",
+    "shortDescriptionEn": "Upcoming Grade 9 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 9 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_9"
+  },
+  {
+    "id": "2c4950bd-e93b-4528-bee5-98e154904c18",
+    "slug": "grade-6-ict",
+    "description": "Start building essential ICT knowledge through guided lessons on using digital devices, basic computer concepts, and safe technology habits.",
+    "shortDescriptionEn": "Upcoming Grade 6 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 6 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_6"
+  },
+  {
+    "id": "6f7224c4-df15-44f7-a56b-517cee329279",
+    "slug": "grade-8-ict",
+    "description": "Strengthen your understanding of ICT concepts through structured lessons, practical tasks, and problem-solving activities.",
+    "shortDescriptionEn": "Upcoming Grade 8 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 8 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_8"
+  },
+  {
+    "id": "911bbe31-700d-454e-ac81-aace1cd781b4",
+    "slug": "grade-10-ict",
+    "description": "Develop O/L ICT knowledge with structured lessons that build understanding, practical skills, and confidence for school assessments.",
+    "shortDescriptionEn": "Upcoming Grade 10 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 10 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_10"
+  },
+  {
+    "id": "94a761e4-1631-43bd-82ca-7351efee1ca2",
+    "slug": "grade-7-ict",
+    "description": "Build on your ICT foundation with practical digital skills, organised lessons, and activities that connect technology to everyday learning.",
+    "shortDescriptionEn": "Upcoming Grade 7 ICT learning paths for Sinhala and English-medium students.",
+    "shortDescriptionSi": "සිංහල සහ ඉංග්‍රීසි මාධ්‍ය සිසුන් සඳහා ඉදිරියේදී ලැබෙන 7 ශ්‍රේණිය ICT ඉගෙනුම් මාර්ග.",
+    "levelCode": "GRADE_7"
+  },
+  {
+    "id": "f0d22664-472f-4dd3-9f87-89077b266bd6",
+    "slug": "al-ict",
+    "description": null,
+    "shortDescriptionEn": "Structured A/L ICT lessons with free chapters, notes, activities, and progress tracking.",
+    "shortDescriptionSi": "නොමිලේ පාඩම්, සටහන්, ක්‍රියාකාරකම් සහ ප්‍රගති සටහන් සමඟ ව්‍යුහගත A/L ICT ඉගෙනුම.",
+    "levelCode": "AL"
+  }
+]

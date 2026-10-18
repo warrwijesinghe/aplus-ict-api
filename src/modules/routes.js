@@ -282,6 +282,7 @@ const publicLesson = (lesson) => {
     title: lesson.title,
     shortDescription: lesson.summary,
     tutorialImageResourceId: lesson.tutorialImageResourceId || null,
+    landingPageContent: lesson.landingPageContent || null,
     estimatedPeriods: lesson.estimatedPeriods,
     displayOrder: lesson.sortOrder,
     hasFreeContent: freeContentCount > 0,

@@ -1,0 +1,30 @@
+{
+  "GRADE_6": {
+    "en": "Begin your ICT journey with clear introductions to computers, digital devices, and their everyday uses. Explore the Grade 6 lessons at your own pace and build a foundation for further ICT learning.",
+    "si": "පරිගණක, ඩිජිටල් උපකරණ සහ ඒවායේ එදිනෙදා භාවිතය හඳුනාගනිමින් ICT ඉගෙනීම ආරම්භ කරන්න. ඔබේ වේගයට 6 ශ්‍රේණියේ පාඩම් අධ්‍යයනය කරමින් ඉදිරි ICT ඉගෙනීමට අවශ්‍ය පදනම ගොඩනඟන්න."
+  },
+  "GRADE_7": {
+    "en": "Build on your ICT foundation and explore how computers support everyday learning and communication. Work through the Grade 7 lessons at your own pace as you develop your understanding of digital technology.",
+    "si": "ඔබේ ICT පදනම ශක්තිමත් කරමින් එදිනෙදා ඉගෙනීමට සහ සන්නිවේදනයට පරිගණක උපකාරී වන ආකාරය හඳුනාගන්න. ඔබේ වේගයට 7 ශ්‍රේණියේ පාඩම් අධ්‍යයනය කරමින් ඩිජිටල් තාක්ෂණය පිළිබඳ අවබෝධය වර්ධනය කරගන්න."
+  },
+  "GRADE_8": {
+    "en": "Deepen your understanding of ICT and connect digital concepts with familiar situations. Explore the Grade 8 lessons step by step, revisit challenging ideas, and prepare for the next stage of school ICT.",
+    "si": "ICT පිළිබඳ අවබෝධය පුළුල් කරමින් ඩිජිටල් සංකල්ප හුරුපුරුදු අවස්ථා සමඟ සම්බන්ධ කරගන්න. 8 ශ්‍රේණියේ පාඩම් පියවරෙන් පියවර අධ්‍යයනය කරමින් අපහසු කරුණු නැවත සලකා බලා ඉදිරි ICT ඉගෙනීමට සූදානම් වන්න."
+  },
+  "GRADE_9": {
+    "en": "Strengthen your school ICT foundation before moving into upper-school study. Follow the Grade 9 lessons at your own pace and revisit key concepts to develop a clearer understanding of digital systems.",
+    "si": "ඉහළ ශ්‍රේණිවල අධ්‍යයනයට යොමු වීමට පෙර ඔබේ පාසල් ICT පදනම ශක්තිමත් කරගන්න. ඔබේ වේගයට 9 ශ්‍රේණියේ පාඩම් අධ්‍යයනය කරමින් ප්‍රධාන සංකල්ප නැවත සලකා බලා ඩිජිටල් පද්ධති පිළිබඳ අවබෝධය වර්ධනය කරගන්න."
+  },
+  "GRADE_10": {
+    "en": "Start your O/L ICT studies with a structured path through the Grade 10 lessons. Develop your understanding of core concepts, revisit topics when you need to, and build a foundation for Grade 11 study.",
+    "si": "10 ශ්‍රේණියේ පාඩම් ඔස්සේ ක්‍රමානුකූලව ඔබේ සාමාන්‍ය පෙළ ICT අධ්‍යයනය ආරම්භ කරන්න. මූලික සංකල්ප පිළිබඳ අවබෝධය වර්ධනය කරගෙන අවශ්‍ය විට පාඩම් නැවත අධ්‍යයනය කරමින් 11 ශ්‍රේණිය සඳහා පදනම ගොඩනඟන්න."
+  },
+  "GRADE_11": {
+    "en": "Bring your O/L ICT learning together through the Grade 11 lessons. Review key concepts alongside your school studies, work through topics at your own pace, and organise your revision for the examination.",
+    "si": "11 ශ්‍රේණියේ පාඩම් ඔස්සේ ඔබේ සාමාන්‍ය පෙළ ICT දැනුම තහවුරු කරගන්න. පාසල් අධ්‍යයනය සමඟ ප්‍රධාන සංකල්ප නැවත සලකා බලා ඔබේ වේගයට පාඩම් අධ්‍යයනය කරමින් විභාග පුනරීක්ෂණය සැලසුම් කරගන්න."
+  },
+  "AL": {
+    "en": "Explore A/L ICT through lessons organised around the syllabus competencies. Study complex concepts step by step, revisit topics at your own pace, and use the published learning content to support your school studies and revision.",
+    "si": "විෂය නිර්දේශයේ නිපුණතා අනුව සංවිධානය කළ පාඩම් ඔස්සේ උසස් පෙළ ICT අධ්‍යයනය කරන්න. සංකීර්ණ සංකල්ප පියවරෙන් පියවර තේරුම් ගෙන ඔබේ වේගයට පාඩම් නැවත අධ්‍යයනය කරමින් පාසල් ඉගෙනීමට සහ පුනරීක්ෂණයට පළ කර ඇති අන්තර්ගතය භාවිත කරන්න."
+  }
+}

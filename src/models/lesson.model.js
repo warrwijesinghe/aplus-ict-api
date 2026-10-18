@@ -14,6 +14,8 @@ export const defineLesson = (sequelize) =>
     summary: DataTypes.TEXT,
     descriptionEn: DataTypes.TEXT,
     descriptionSi: DataTypes.TEXT,
+    // Public marketing copy and syllabus, independent of protected LMS topics.
+    landingPageContent: DataTypes.JSON,
     // The printed tutorial cover selected for this lesson in the content admin.
     // It is intentionally separate from lesson activity images.
     tutorialImageResourceId: DataTypes.UUID,
