@@ -29,11 +29,16 @@ export const courseState = async (userId, courseTrackId) => {
 export const dashboard = async (userId) => {
   const enrollments = await db.Enrolment.findAll({ where: { userId, status: "active" }, include: [{ model: db.CourseTrack, include: [db.Course, db.Medium] }], order: [["lastAccessedAt", "DESC"]] });
   const courses = await Promise.all(enrollments.map(async (enrolment) => {
-    const track = enrolment.CourseTrack; const progress = await progressForCourse(userId, track.id); const state = await courseState(userId, track.id);
-    const continuation = await continueLearning(userId, track.slug);
-    return { enrolmentId: enrolment.id, courseTrackId: track.id, slug: track.slug, title: track.title, academicLevel: track.Course?.academicLevel || track.Course?.courseGroup || null, medium: track.Medium?.code || null, enrolmentType: enrolment.source === "manual" ? "admin" : enrolment.source, status: enrolment.status, enrolledAt: enrolment.enrolledAt, lastLearningAt: state.lastAccessedAt || enrolment.lastAccessedAt, lastAccessedActivityId: state.lastActivityId, progress: progress.course, continueLearning: continuation.target };
+    const track = enrolment.CourseTrack;
+    if (!track) return null;
+    const available = track.status === "published" && track.isPublic && track.availabilityStatus === "active" && track.Course?.status === "published" && track.Course?.isPublic;
+    const state = await courseState(userId, track.id);
+    const progress = available ? await progressForCourse(userId, track.id) : null;
+    const continuation = available ? await continueLearning(userId, track.slug) : null;
+    return { enrolmentId: enrolment.id, courseTrackId: track.id, slug: track.slug, title: track.title, academicLevel: track.Course?.academicLevel || track.Course?.courseGroup || null, medium: track.Medium?.code || null, enrolmentType: enrolment.source === "manual" ? "admin" : enrolment.source, status: enrolment.status, availabilityStatus: available ? "active" : "unavailable", enrolledAt: enrolment.enrolledAt, lastLearningAt: state.lastAccessedAt || enrolment.lastAccessedAt, lastAccessedActivityId: state.lastActivityId, progress: progress?.course || null, continueLearning: continuation?.target || null };
   }));
+  const enrolledCourses = courses.filter(Boolean);
   const recentHistory = await learningHistory(userId, { pageSize: 8 });
-  const results = (await Promise.all(courses.map(async (course) => (await gradebookForStudent(userId, course.courseTrackId)).quizzes.map((quiz) => ({ ...quiz, courseTrackId: course.courseTrackId, courseTitle: course.title }))))).flat();
-  return { courses, continueLearning: courses.find((course) => course.continueLearning) || null, recentLearning: recentHistory.items, recentQuizResults: results.filter((result) => result.percentage !== undefined).slice(0, 5), pendingGrades: results.filter((result) => result.pendingManualGrading).slice(0, 5), assignmentResults: [] };
+  const results = (await Promise.all(enrolledCourses.filter((course) => course.availabilityStatus === "active").map(async (course) => (await gradebookForStudent(userId, course.courseTrackId)).quizzes.map((quiz) => ({ ...quiz, courseTrackId: course.courseTrackId, courseTitle: course.title }))))).flat();
+  return { courses: enrolledCourses, continueLearning: enrolledCourses.find((course) => course.continueLearning) || null, recentLearning: recentHistory.items, recentQuizResults: results.filter((result) => result.percentage !== undefined).slice(0, 5), pendingGrades: results.filter((result) => result.pendingManualGrading).slice(0, 5), assignmentResults: [] };
 };

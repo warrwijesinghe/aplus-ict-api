@@ -72,10 +72,11 @@ export const createContentAdminRouter = () => {
     if (!privileged(req)) throw new ApiError(403, "Only administrators can create Courses");
     validateContentPayload(req.body, "course");
     const title = String(req.body.title || req.body.titleEn || "").trim(); const slug = String(req.body.slug || "").trim();
-    if (!title || !slug || !req.body.academicLevelId) throw new ApiError(422, "Course title, slug, and Academic Level are required");
-    await assertParent(db.AcademicLevel, req.body.academicLevelId, "Academic Level does not exist");
+    const nonSchool = ["DEGREE", "PROFESSIONAL", "SHORT_COURSES"].includes(req.body.courseGroup);
+    if (!title || !slug || (!nonSchool && !req.body.academicLevelId)) throw new ApiError(422, "Course title, slug, and Academic Level are required");
+    if (req.body.academicLevelId) await assertParent(db.AcademicLevel, req.body.academicLevelId, "Academic Level does not exist");
     if (await db.Course.findOne({ where: { slug } })) throw new ApiError(409, "A Course with this slug already exists");
-    const course = await db.Course.create({ ...pick(req.body, fields.course), title, slug, status: "draft" });
+    const course = await db.Course.create({ ...pick(req.body, fields.course), academicLevelId: req.body.academicLevelId || null, title, slug, status: "draft" });
     await audit(req, "course_created", "course", course.id, { academicLevelId: course.academicLevelId }); send(res, course, 201);
   }));
   router.post("/admin/content-builder/media", ...requireCourse(PERMISSIONS.TRACKS_CREATE, (req) => req.body.courseId), asyncHandler(async (req, res) => {

@@ -251,6 +251,27 @@ const publicTrackWhere = (query) => {
   return where;
 };
 
+// This listing exposes only published names and availability, never draft content.
+router.get(
+  "/public/course-selection",
+  asyncHandler(async (_req, res) => {
+    const tracks = await db.CourseTrack.findAll({
+      where: { status: "published", isPublic: true },
+      attributes: ["id", "slug", "title", "availabilityStatus", "sortOrder"],
+      include: [
+        { model: db.Course, attributes: ["title", "titleEn", "courseGroup"], where: { status: "published", isPublic: true, courseGroup: { [Op.in]: ["SCHOOL", "OL", "AL", "DEGREE", "PROFESSIONAL", "SHORT_COURSES"] } } },
+        { model: db.Medium, attributes: ["code", "name", "nameEn"] },
+      ],
+      order: [["sortOrder", "ASC"], ["title", "ASC"]],
+    });
+    send(res, tracks.map((track) => ({
+      id: track.id, slug: track.slug, title: track.Course?.titleEn || track.Course?.title || track.title,
+      courseGroup: track.Course?.courseGroup, medium: track.Medium?.nameEn || track.Medium?.name || track.Medium?.code || null,
+      availabilityStatus: track.availabilityStatus === "inactive" ? "inactive" : "active",
+    })));
+  }),
+);
+
 const publicLesson = (lesson) => {
   const { freeContentCount, paidContentCount } = contentCounts(lesson);
 
