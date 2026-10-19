@@ -10,6 +10,7 @@ import { pick, validateContentPayload } from "./content-validation.js";
 import { activityTypeMetadata } from "./activities/activity-types.js";
 import { archiveActivity, createActivity, duplicateActivity, publishActivity, unpublishActivity, updateActivity, validateForPublishing } from "./activities/activity.service.js";
 import { serializeActivity } from "./activities/activity-serializer.js";
+import { validateTutorialImage } from "./tutorial-image.js";
 
 const send = (res, data, status = 200) => res.status(status).json({ data });
 const privileged = (req) => privilegedRoles.has(req.user.role);
@@ -49,7 +50,7 @@ const scopedList = async (req, Model, kind) => {
 };
 
 const fields = {
-  course: ["categoryId", "academicLevelId", "title", "titleEn", "titleSi", "slug", "code", "courseGroup", "academicLevel", "description", "shortDescriptionEn", "shortDescriptionSi", "status", "sortOrder", "isFeatured", "isPublic", "publishedAt"],
+  course: ["categoryId", "academicLevelId", "title", "titleEn", "titleSi", "slug", "code", "courseGroup", "academicLevel", "description", "tutorialImageResourceId", "shortDescriptionEn", "shortDescriptionSi", "status", "sortOrder", "isFeatured", "isPublic", "publishedAt"],
   track: ["courseId", "mediumId", "title", "slug", "status", "availabilityStatus", "isPublic", "enrolmentOpen", "sortOrder", "publishedAt"],
   lesson: ["trackId", "title", "titleEn", "titleSi", "slug", "lessonNumber", "estimatedPeriods", "estimatedMinutes", "summary", "descriptionEn", "descriptionSi", "tutorialImageResourceId", "landingPageContent", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder", "publishedAt"],
   topic: ["lessonId", "slug", "title", "titleEn", "titleSi", "descriptionEn", "descriptionSi", "status", "isVisible", "availableFrom", "availableUntil", "sortOrder"],
@@ -71,6 +72,7 @@ export const createContentAdminRouter = () => {
   router.post("/admin/content-builder/courses", authenticate, requirePermission(PERMISSIONS.COURSES_CREATE), asyncHandler(async (req, res) => {
     if (!privileged(req)) throw new ApiError(403, "Only administrators can create Courses");
     validateContentPayload(req.body, "course");
+    await validateTutorialImage(req.body);
     const title = String(req.body.title || req.body.titleEn || "").trim(); const slug = String(req.body.slug || "").trim();
     const nonSchool = ["DEGREE", "PROFESSIONAL", "SHORT_COURSES"].includes(req.body.courseGroup);
     if (!title || !slug || (!nonSchool && !req.body.academicLevelId)) throw new ApiError(422, "Course title, slug, and Academic Level are required");
@@ -90,9 +92,9 @@ export const createContentAdminRouter = () => {
   }));
   const simple = (path, Model, kind, permission, event) => {
     router.get(`/admin/${path}`, authenticate, requirePermission(permission.read), asyncHandler(async (_req, res) => send(res, await Model.findAll({ order: [["sortOrder", "ASC"]] }))));
-    router.post(`/admin/${path}`, authenticate, requirePermission(permission.create), asyncHandler(async (req, res) => { validateContentPayload(req.body, kind); const row = await Model.create(pick(req.body, fields[kind])); await audit(req, `${event}_created`, kind, row.id, { status: row.status }); send(res, row, 201); }));
+    router.post(`/admin/${path}`, authenticate, requirePermission(permission.create), asyncHandler(async (req, res) => { validateContentPayload(req.body, kind); if (["course", "lesson"].includes(kind)) await validateTutorialImage(req.body); const row = await Model.create(pick(req.body, fields[kind])); await audit(req, `${event}_created`, kind, row.id, { status: row.status }); send(res, row, 201); }));
     router.get(`/admin/${path}/:id`, authenticate, requirePermission(permission.read), asyncHandler(async (req, res) => { const row = await Model.findByPk(req.params.id); if (!row) throw new ApiError(404, "Not found"); send(res, row); }));
-    router.patch(`/admin/${path}/:id`, authenticate, requirePermission(permission.update), asyncHandler(async (req, res) => { const row = await Model.findByPk(req.params.id); if (!row) throw new ApiError(404, "Not found"); validateContentPayload(req.body, kind); const values = pick(req.body, fields[kind]); await row.update(values); await audit(req, actionFor(req, values.status) || `${event}_updated`, kind, row.id, { fields: Object.keys(values), status: row.status }); send(res, row); }));
+    router.patch(`/admin/${path}/:id`, authenticate, requirePermission(permission.update), asyncHandler(async (req, res) => { const row = await Model.findByPk(req.params.id); if (!row) throw new ApiError(404, "Not found"); validateContentPayload(req.body, kind); if (["course", "lesson"].includes(kind)) await validateTutorialImage(req.body); const values = pick(req.body, fields[kind]); await row.update(values); await audit(req, actionFor(req, values.status) || `${event}_updated`, kind, row.id, { fields: Object.keys(values), status: row.status }); send(res, row); }));
   };
   simple("academic-levels", db.AcademicLevel, "level", { read: PERMISSIONS.COURSES_READ, create: PERMISSIONS.COURSES_CREATE, update: PERMISSIONS.COURSES_UPDATE }, "academic_level");
   simple("courses", db.Course, "course", { read: PERMISSIONS.COURSES_READ, create: PERMISSIONS.COURSES_CREATE, update: PERMISSIONS.COURSES_UPDATE }, "course");
@@ -104,9 +106,9 @@ export const createContentAdminRouter = () => {
 
   const scoped = (path, Model, kind, permission, event, resolveTrack, validateRelations = async () => {}) => {
     router.get(`/admin/${path}`, authenticate, requirePermission(permission.read), asyncHandler(async (req, res) => send(res, await scopedList(req, Model, kind))));
-    router.post(`/admin/${path}`, ...requireTrack(permission.create, "canManageContent", resolveTrack), asyncHandler(async (req, res) => { validateContentPayload(req.body, kind); await validateRelations(req.body); const row = await Model.create(pick(req.body, fields[kind])); await audit(req, `${event}_created`, kind, row.id, { parentId: row.trackId || row.lessonId || row.topicId }); send(res, row, 201); }));
+    router.post(`/admin/${path}`, ...requireTrack(permission.create, "canManageContent", resolveTrack), asyncHandler(async (req, res) => { validateContentPayload(req.body, kind); if (["course", "lesson"].includes(kind)) await validateTutorialImage(req.body); await validateRelations(req.body); const row = await Model.create(pick(req.body, fields[kind])); await audit(req, `${event}_created`, kind, row.id, { parentId: row.trackId || row.lessonId || row.topicId }); send(res, row, 201); }));
     router.get(`/admin/${path}/:id`, ...requireTrack(permission.read, "canManageContent", (req) => resolveTrack({ ...req, body: { ...req.body, id: req.params.id } })), asyncHandler(async (req, res) => send(res, await assertParent(Model, req.params.id, "Not found"))));
-    router.patch(`/admin/${path}/:id`, ...requireTrack(permission.update, "canManageContent", (req) => resolveTrack({ ...req, body: { ...req.body, id: req.params.id } })), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); validateContentPayload(req.body, kind); const values = pick(req.body, fields[kind]); const parentField = { lesson: "trackId", topic: "lessonId", activity: "lessonId" }[kind]; if (values[parentField] && values[parentField] !== row[parentField]) throw new ApiError(422, "Moving content between parents is not supported"); await validateRelations(values, row); await row.update(values); await audit(req, actionFor(req, values.status) || `${event}_updated`, kind, row.id, { fields: Object.keys(values) }); send(res, row); }));
+    router.patch(`/admin/${path}/:id`, ...requireTrack(permission.update, "canManageContent", (req) => resolveTrack({ ...req, body: { ...req.body, id: req.params.id } })), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); validateContentPayload(req.body, kind); if (["course", "lesson"].includes(kind)) await validateTutorialImage(req.body); const values = pick(req.body, fields[kind]); const parentField = { lesson: "trackId", topic: "lessonId", activity: "lessonId" }[kind]; if (values[parentField] && values[parentField] !== row[parentField]) throw new ApiError(422, "Moving content between parents is not supported"); await validateRelations(values, row); await row.update(values); await audit(req, actionFor(req, values.status) || `${event}_updated`, kind, row.id, { fields: Object.keys(values) }); send(res, row); }));
   };
   scoped("lessons", db.Lesson, "lesson", { read: PERMISSIONS.LESSONS_READ, create: PERMISSIONS.LESSONS_CREATE, update: PERMISSIONS.LESSONS_UPDATE }, "lesson", async (req) => req.body.trackId || trackForLesson(req.body.id));
   scoped("topics", db.Topic, "topic", { read: PERMISSIONS.TOPICS_READ, create: PERMISSIONS.TOPICS_CREATE, update: PERMISSIONS.TOPICS_UPDATE }, "topic", async (req) => trackForLesson(req.body.lessonId || (await assertParent(db.Topic, req.body.id, "Topic not found")).lessonId), async (values) => assertParent(db.Lesson, values.lessonId, "Lesson does not exist"));

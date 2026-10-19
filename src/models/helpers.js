@@ -22,6 +22,7 @@ const tableNames = Object.freeze({
   Topic: "topics",
   LessonSection: "lesson_sections",
   Enrolment: "enrolments",
+  LessonEnrolment: "lesson_enrolments",
   Entitlement: "entitlements",
   LessonProgress: "lesson_progresses",
   ContentProgress: "content_progresses",

@@ -1,23 +1,19 @@
-/**
- * Progress uses only content a student can currently access. This lets free
- * learners feel progress immediately, while an unlock intentionally expands
- * the denominator to include the newly available premium content.
- */
-export const accessibleProgress = (contentItems) => {
-  // Labels and future submit/pass activities cannot be completed by this
-  // player, so they never dilute a learner's current progress percentage.
-  const accessibleItems = contentItems.filter((item) => !item.isLocked && !["none", "submit", "pass"].includes(item.completionMode));
-  const completedItems = accessibleItems.filter(
-    (item) => item.progress?.status === "completed",
-  );
-  const totalAccessibleActivities = accessibleItems.length;
-  const completedActivities = completedItems.length;
-
-  return {
-    completedActivities,
-    totalAccessibleActivities,
-    progressPercent: totalAccessibleActivities
-      ? Math.round((completedActivities / totalAccessibleActivities) * 100)
-      : 0,
-  };
+/** Progress counts the full required curriculum, independently of access locks. */
+export const accessibleProgress = (contentItems, { hasFullAccess = false } = {}) => {
+  const required = contentItems.filter((item) => item.completionMode !== 'none' && item.isRequired !== false);
+  const done = (item) => item.progress?.status === 'completed';
+  const completedActivities = required.filter(done).length;
+  const totalRequiredActivities = required.length;
+  const free = required.filter((item) => !['premium', 'paid'].includes(item.accessPolicy));
+  const freeCompletedActivities = free.filter(done).length;
+  const allDone = totalRequiredActivities > 0 && completedActivities === totalRequiredActivities;
+  const progressPercent = totalRequiredActivities ? allDone ? 100 : Math.min(99, Math.round(completedActivities / totalRequiredActivities * 100)) : 0;
+  const isCompleted = Boolean(hasFullAccess && allDone);
+  return { completedActivities, totalRequiredActivities,
+    // Compatibility alias: this now means all required activities, never just unlocked ones.
+    totalAccessibleActivities: totalRequiredActivities, progressPercent,
+    completedCount: completedActivities, requiredCount: totalRequiredActivities, percentage: progressPercent,
+    freeRequiredActivities: free.length, freeCompletedActivities,
+    freePreviewCompleted: free.length > 0 && freeCompletedActivities === free.length,
+    isCompleted, status: isCompleted ? 'completed' : completedActivities ? 'in_progress' : 'not_started' };
 };

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { hasLessonEnrollment } from '../students/lesson-enrollment.service.js';
 import crypto from "crypto";
 import { Op } from "sequelize";
 import { asyncHandler, ApiError } from "../../core/errors.js";
@@ -14,6 +15,7 @@ const publishedWhere = { status: ["published", "active"], archivedAt: null, [Op.
 const router = Router();
 
 router.get("/student/lessons/:lessonId/exam-success-pack", authenticate, asyncHandler(async (req, res) => {
+  if (!(await hasLessonEnrollment(req.user.sub, req.params.lessonId))) throw new ApiError(403, 'An active lesson enrolment is required before purchasing this lesson.');
   const lesson = await db.Lesson.findByPk(req.params.lessonId, { include: [db.CourseTrack] }); if (!lesson?.CourseTrack) throw new ApiError(404, "Lesson not found");
   const enrolled = await db.Enrolment.findOne({ where: { userId: req.user.sub, courseTrackId: lesson.trackId, status: "active" } }); if (!enrolled) throw new ApiError(403, "Course enrollment is required");
   const product = await db.Product.findOne({ where: { ...publishedWhere, lessonId: lesson.id, courseTrackId: lesson.trackId }, include: productIncludes });

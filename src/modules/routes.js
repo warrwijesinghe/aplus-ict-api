@@ -33,6 +33,7 @@ import { confirmPaymentAndGrantEntitlements, rejectPayment } from "./payments/pa
 import { queueStudentPaymentSms, receiptReceivedSmsText } from "./commerce/commerce.service.js";
 import { getStudentProfile, saveStudentProfile, requireCompletedProfile } from "./students/student-profile.service.js";
 import { enrollStudent, getEnrollment, listEnrollments, touchEnrollment, unenrollStudent } from "./students/enrollment.service.js";
+import { getLessonEnrollment, myLessonEnrollments } from './students/lesson-enrollment.service.js';
 import { courseState, dashboard, learningHistory } from "./students/student-learning.service.js";
 import { changeAdminEnrolment, listStudents, studentDetail, studentHistory, studentProgress, studentResults, updateAdminEnrolment } from "./students/student-admin.service.js";
 import siteRoutes from "./site/routes.js";
@@ -127,13 +128,15 @@ router.use(smsRoutes);
 router.get("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await getStudentProfile(req.user.sub))));
 router.patch("/student/profile", authenticate, asyncHandler(async (req, res) => send(res, await saveStudentProfile(req.user.sub, req.body))));
 router.get("/student/enrolments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
+router.get('/student/lesson-enrolments', authenticate, asyncHandler(async (req, res) => send(res, await myLessonEnrollments(req.user.sub))));
+router.get('/student/lessons/:lessonId/enrolment', authenticate, asyncHandler(async (req, res) => send(res, await getLessonEnrollment(req.user.sub, req.params.lessonId))));
 router.get("/student/enrollments", authenticate, asyncHandler(async (req, res) => send(res, await listEnrollments(req.user.sub))));
 router.get("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseTrackId))));
 router.get("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await getEnrollment(req.user.sub, req.params.courseId))));
-router.post("/student/courses/:courseTrackId/enrol", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseTrackId), 201)));
-router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId), 201)));
-router.delete("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseTrackId))));
-router.delete("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseId))));
+router.post("/student/courses/:courseTrackId/enrol", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseTrackId, req.body.lessonSlug), 201)));
+router.post("/courses/:courseId/enroll", authenticate, asyncHandler(async (req, res) => send(res, await enrollStudent(req.user.sub, req.params.courseId, req.body.lessonSlug), 201)));
+router.delete("/student/courses/:courseTrackId/enrolment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseTrackId, req.body.lessonSlug))));
+router.delete("/courses/:courseId/enrollment", authenticate, asyncHandler(async (req, res) => send(res, await unenrollStudent(req.user.sub, req.params.courseId, req.body.lessonSlug))));
 router.get("/student/dashboard", authenticate, asyncHandler(async (req, res) => { await requireCompletedProfile(req.user.sub); send(res, await dashboard(req.user.sub)); }));
 router.get("/student/courses/:courseTrackId/state", authenticate, asyncHandler(async (req, res) => send(res, await courseState(req.user.sub, req.params.courseTrackId))));
 router.get("/student/learning-history", authenticate, asyncHandler(async (req, res) => send(res, await learningHistory(req.user.sub, req.query))));
@@ -193,6 +196,7 @@ const publicTrack = (track) => {
     shortDescription: track.Course?.shortDescriptionEn || track.Course?.description || "",
     shortDescriptionEn: track.Course?.shortDescriptionEn || track.Course?.description || "",
     shortDescriptionSi: track.Course?.shortDescriptionSi || null,
+    tutorialImageResourceId: track.Course?.tutorialImageResourceId || null,
     description: track.Course?.description || track.Course?.shortDescriptionEn || "",
     medium: track.Medium,
     academicLevel: track.Course?.AcademicLevel
@@ -700,6 +704,7 @@ router.get(
               id: section.id,
               title: section.title || section.type,
               activityType: section.type,
+              completionMode: section.completionMode,
               accessPolicy: sectionAccessPolicy(section),
               displayOrder: section.sortOrder,
               isLocked,
@@ -721,12 +726,13 @@ router.get(
           activities,
           // The client can render a useful progress bar for every lesson instead
           // of calculating it repeatedly from the activity list.
-          progress: accessibleProgress(activities),
+          progress: accessibleProgress(activities, { hasFullAccess: premiumUnlocked }),
         };
       }),
     );
     const courseProgress = accessibleProgress(
       lessons.flatMap((lesson) => lesson.activities),
+      { hasFullAccess: lessons.every((lesson) => lesson.premiumUnlocked) },
     );
     send(res, {
       course: publicTrack(track),

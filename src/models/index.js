@@ -11,6 +11,7 @@ import { defineLesson } from "./lesson.model.js";
 import { defineTopic } from "./topic.model.js";
 import { defineLessonSection } from "./lesson-section.model.js";
 import { defineEnrolment } from "./enrolment.model.js";
+import { defineLessonEnrolment } from "./lesson-enrolment.model.js";
 import { defineEntitlement } from "./entitlement.model.js";
 import { defineLessonProgress } from "./lesson-progress.model.js";
 import { defineResource } from "./resource.model.js";
@@ -54,6 +55,7 @@ export const Lesson = defineLesson(sequelize);
 export const Topic = defineTopic(sequelize);
 export const LessonSection = defineLessonSection(sequelize);
 export const Enrolment = defineEnrolment(sequelize);
+export const LessonEnrolment = defineLessonEnrolment(sequelize);
 export const Entitlement = defineEntitlement(sequelize);
 export const LessonProgress = defineLessonProgress(sequelize);
 export const Resource = defineResource(sequelize);
@@ -120,6 +122,9 @@ User.hasMany(Enrolment, { foreignKey: "userId" });
 Enrolment.belongsTo(User, { foreignKey: "userId" });
 CourseTrack.hasMany(Enrolment, { foreignKey: "courseTrackId" });
 Enrolment.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
+LessonEnrolment.belongsTo(User, { foreignKey: 'userId' });
+LessonEnrolment.belongsTo(CourseTrack, { foreignKey: 'courseTrackId' });
+LessonEnrolment.belongsTo(Lesson, { foreignKey: 'lessonId' });
 Lesson.hasMany(LessonSection, { foreignKey: "lessonId" });
 LessonSection.belongsTo(Lesson, { foreignKey: "lessonId" });
 Lesson.hasMany(Topic, { foreignKey: "lessonId" });
@@ -143,6 +148,7 @@ Payment.belongsTo(Resource, { foreignKey: "paymentSlipResourceId", as: "PaymentS
 Order.belongsTo(User, { foreignKey: "userId" });
 OrderItem.belongsTo(Product, { foreignKey: "productId" });
 OrderItem.belongsTo(Lesson, { foreignKey: "lessonId" });
+OrderItem.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
 Product.belongsTo(Lesson, { foreignKey: "lessonId" });
 Product.hasMany(ProductEntitlementRule, { foreignKey: "productId", as: "EntitlementRules" }); ProductEntitlementRule.belongsTo(Product, { foreignKey: "productId" });
 OrderItem.belongsTo(Order, { foreignKey: "orderId" });
@@ -223,6 +229,7 @@ export const db = {
   Topic,
   LessonSection,
   Enrolment,
+  LessonEnrolment,
   Entitlement,
   LessonProgress,
   Resource,

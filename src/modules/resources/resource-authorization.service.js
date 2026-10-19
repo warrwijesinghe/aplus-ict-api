@@ -1,6 +1,7 @@
 import { db } from "../../models/index.js";
 import { privilegedRoles } from "../../security/authorization.js";
 import { canAccessContent } from "../learning/access.service.js";
+import { hasLessonEnrollment } from '../students/lesson-enrollment.service.js';
 
 const active = (resource) => ["active", "ready"].includes(resource.status) && !resource.deletedAt;
 const isAdmin = (user) => privilegedRoles.has(user?.role);
@@ -24,9 +25,10 @@ export const canViewResource = async (user, resource) => {
   if (!activities.length && !tutorialLessons.length) return canManageResource(user, resource);
   for (const activity of activities) if (await canAccessContent(user.sub, activity.Lesson, activity)) return true;
   if (resource.accessPolicy === "course_enrolled") {
+    const linkedLessons = [...activities.map((activity) => activity.Lesson), ...tutorialLessons].filter(Boolean);
+    const activeLessons = (await Promise.all(linkedLessons.map(async (lesson) => await hasLessonEnrollment(user.sub, lesson.id) ? lesson : null))).filter(Boolean);
     const trackIds = [...new Set([
-      ...activities.map((activity) => activity.Lesson?.trackId),
-      ...tutorialLessons.map((lesson) => lesson.trackId),
+      ...activeLessons.map((lesson) => lesson.trackId),
     ].filter(Boolean))];
     return Boolean(trackIds.length && await db.Enrolment.findOne({ where: { userId: user.sub, courseTrackId: trackIds, status: "active" } }));
   }

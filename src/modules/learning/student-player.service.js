@@ -49,11 +49,12 @@ const navActivity = (activity, progress, isLocked, access = null) => ({
   progress: progress ? { status: progress.status, completedAt: progress.completedAt } : { status: "not_started", completedAt: null },
 });
 
-const activityCounts = (activities) => accessibleProgress(activities.map(({ activity, progress, isLocked }) => ({
+const activityCounts = (activities, hasFullAccess = false) => accessibleProgress(activities.map(({ activity, progress, isLocked }) => ({
   isLocked,
   completionMode: activity.completionMode,
+  accessPolicy: activity.accessPolicy,
   progress: progress ? { status: progress.status } : { status: "not_started" },
-})));
+})), { hasFullAccess });
 
 /**
  * Loads just the published, enrolled student's course hierarchy.  Content is
@@ -124,7 +125,8 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
       summary: lesson.summary || null,
       sortOrder: lesson.sortOrder,
       topics: groups,
-      progress: activityCounts(lessonActivities),
+      fullAccess: entitledLessons.has(lesson.id),
+      progress: activityCounts(lessonActivities, entitledLessons.has(lesson.id)),
     };
   });
   const flatActivities = activityRows.sort((a, b) => {
@@ -133,7 +135,8 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
     const topicOrder = (topics.findIndex((topic) => topic.id === a.activity.topicId) + 1) - (topics.findIndex((topic) => topic.id === b.activity.topicId) + 1);
     return topicOrder || a.activity.sortOrder - b.activity.sortOrder;
   });
-  return { track, enrollment, lessons: lessonMap, activityRows: flatActivities, progress: activityCounts(flatActivities), progressByActivity };
+  const hasFullAccess = lessons.filter((lesson) => (byLesson.get(lesson.id) || []).some((row) => row.activity.completionMode !== 'none')).every((lesson) => entitledLessons.has(lesson.id));
+  return { track, enrollment, lessons: lessonMap, activityRows: flatActivities, progress: activityCounts(flatActivities, hasFullAccess), progressByActivity, hasFullAccess };
 };
 
 const activityTarget = (row, lessons) => {
@@ -186,7 +189,7 @@ export const activityPlayerResponse = async (userId, courseSlug, lessonSlug, act
   return {
     course: courseIdentity(player.track),
     lessons: player.lessons,
-    progress: activityCounts(updatedRows),
+    progress: activityCounts(updatedRows, player.hasFullAccess),
     current,
     previous: previous ? activityTarget(previous, player.lessons) : null,
     next: next ? activityTarget(next, player.lessons) : null,

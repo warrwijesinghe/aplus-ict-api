@@ -4,6 +4,8 @@ The A Plus ICT API is the single Node.js/Express modular-monolith backend for th
 
 ## Local startup
 
+Lesson enrolments are stored in `lesson_enrolments`. Free membership never expires. Purchased full access uses the existing `entitlements.startsAt` and `endsAt`: two calendar years from the successful payment/order completion timestamp, repaired by migration `202610190003-correct-free-and-purchased-lesson-access.cjs`. Duplicate payment callbacks do not extend that period. Expired purchases lock premium content while retaining free access and all recorded progress. Lesson progress counts the full published required curriculum, including locked premium activities and required quizzes; lesson completion additionally requires full access. Legacy lesson membership is recovered only from lesson-specific learning/purchase evidence, not every lesson in a course.
+
 ```powershell
 # Create the ignored .env file with the required local/server values.
 npm install
@@ -48,6 +50,8 @@ PAYHERE_NOTIFY_URL=https://api.dev.aplusict.lk/api/v1/payments/payhere/notify
 Never commit the Merchant Secret or put it in the Web application. The API derives the amount from the stored order, creates a payment-attempt reference, and verifies PayHere's signed form notification before completing an order and granting entitlements. Register `PAYHERE_NOTIFY_URL` as the PayHere notify URL; it must be publicly reachable over HTTPS.
 
 ## Upload storage
+
+Course tutorial image defaults require migration `202610190001-add-course-tutorial-image.cjs`. Run `npm run db:migrate` against the intended environment before deploying the updated API. Tutorial covers must reference active, publicly accessible images; lesson images override course defaults.
 
 Public uploads use `PUBLIC_UPLOAD_DIR` and can be served at `PUBLIC_UPLOAD_URL`
 (normally `/uploads`). Private uploads are never static and are delivered only by

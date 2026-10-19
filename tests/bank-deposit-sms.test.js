@@ -1,8 +1,27 @@
 import { bankAccounts, findBankAccount } from "../src/modules/commerce/bank-accounts.js";
 import { env } from "../src/config/env.js";
-import { bankDepositSmsText, orderDetailsSmsText, receiptUploadSmsText } from "../src/modules/commerce/commerce.service.js";
+import { bankDepositSmsText, orderDetailsSmsText, orderProductSmsTexts, receiptUploadSmsText } from "../src/modules/commerce/commerce.service.js";
 
 describe("bank deposit payment-detail SMS", () => {
+  it("identifies the ordered course, lesson and medium alongside the order number", () => {
+    const texts = orderProductSmsTexts({ orderNumber: "26100002" }, { Course: { titleEn: "Grade 11 ICT" }, CourseTrack: { Medium: { nameEn: "Sinhala" } }, Lesson: { lessonNumber: 1, titleEn: "Problem solving" } });
+    expect(texts).toEqual(["A Plus ICT ORDER\nOrder:26100002\nCourse: Grade 11 ICT\nLesson 01: Problem solving\nMedium: Sinhala"]);
+  });
+
+  it("preserves long Sinhala titles across messages with the order reference on every part", () => {
+    const title = "තොරතුරු හා සන්නිවේදන තාක්ෂණය ".repeat(12).trim();
+    const texts = orderProductSmsTexts({ orderNumber: "26100002" }, { Course: { title }, CourseTrack: { Medium: { nameEn: "Sinhala" } }, Lesson: { titleEn: "Concept of ICT", lessonNumber: 2 } });
+    expect(texts.length).toBeGreaterThan(1);
+    for (const text of texts) {
+      expect(text).toContain("A Plus ICT ORDER\nOrder:26100002\n");
+      expect([...text].length).toBeLessThanOrEqual(160);
+    }
+    const combined = texts.map((text) => text.split("\n").slice(2).join("\n")).join(" ").replace(/\s+/g, " ");
+    expect(combined).toContain(title);
+    expect(combined).toContain("Lesson 02: Concept of ICT");
+    expect(combined).toContain("Medium: Sinhala");
+  });
+
   it("includes only the selected account in a readable multi-line SMS", () => {
     const account = findBankAccount("ndb");
     const text = bankDepositSmsText({ orderNumber: "26080001", total: "1500.00" }, account);
@@ -25,7 +44,8 @@ describe("bank deposit payment-detail SMS", () => {
   });
 
   it("creates one short, order-specific receipt-upload link after the bank details", () => {
-    const text = receiptUploadSmsText({ id: "2a5d5d53-5b1c-4be1-9f72-72ee362b562d" });
+    const text = receiptUploadSmsText({ id: "2a5d5d53-5b1c-4be1-9f72-72ee362b562d", orderNumber: "26100002" });
+    expect(text).toContain("Order:26100002");
     expect(text).toContain("Upload receipt:");
     expect(text).toContain(env.publicWebUrl);
     expect(text).toContain("/student/orders/2a5d5d53-5b1c-4be1-9f72-72ee362b562d/payment/bank-deposit");

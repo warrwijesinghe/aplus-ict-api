@@ -6,8 +6,10 @@ import { env } from "../../config/env.js";
 import { normalizeSriLankanMobile, queueAutomatedSms, queueSms } from "../sms/sms.service.js";
 import { assertSmsConfig, getSmsConfig } from "../sms/sms.config.js";
 import { findBankAccount } from "./bank-accounts.js";
+import { hasLessonEnrollment } from '../students/lesson-enrollment.service.js';
+import { purchasedLessonExpiry, entitlementActive } from './lesson-access-policy.js';
 
-const activeEntitlementWhere = () => ({ status: "active", [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] });
+const activeEntitlementWhere = () => ({ status: "active", entitlementType: "lesson_premium_access", activityId: null, [Op.and]: [{ [Op.or]: [{ startsAt: null }, { startsAt: { [Op.lte]: new Date() } }] }, { [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] }] });
 const pendingTtlMinutes = Math.max(15, Number(process.env.ORDER_PENDING_EXPIRY_MINUTES || 60 * 24));
 const money = (value, field = "price") => {
   const text = String(value ?? "").trim();
@@ -86,13 +88,13 @@ export const productLifecycle = async (id, action, actor) => db.sequelize.transa
 });
 
 export const hasPremiumAccess = async (userId, { courseId, courseTrackId, lessonId, activityId } = {}, transaction) => {
-  const rows = await db.Entitlement.findAll({ where: { userId, status: "active", ...(courseId ? { courseId } : {}), ...(courseTrackId ? { courseTrackId } : {}), ...(lessonId ? { lessonId } : {}), [Op.and]: [{ [Op.or]: [{ endsAt: null }, { endsAt: { [Op.gt]: new Date() } }] }, ...(activityId ? [{ [Op.or]: [{ activityId }, { activityId: null }] }] : [])] }, transaction });
-  return rows.some((row) => (!lessonId || row.lessonId === lessonId || !row.lessonId) && (!activityId || !row.activityId || row.activityId === activityId));
+  const rows = await db.Entitlement.findAll({ where: { userId, status: 'active', entitlementType: 'lesson_premium_access', ...(courseId ? { courseId } : {}), ...(courseTrackId ? { courseTrackId } : {}), ...(lessonId ? { lessonId } : {}) }, transaction });
+  return rows.some((row) => entitlementActive(row) && (!row.activityId || row.activityId === activityId));
 };
-export const entitledLessonIds = async (userId, lessonIds, transaction) => new Set((await db.Entitlement.findAll({ where: { userId, lessonId: { [Op.in]: lessonIds }, ...activeEntitlementWhere() }, attributes: ["lessonId"], transaction })).map((row) => row.lessonId));
 
+export const entitledLessonIds = async (userId, lessonIds, transaction) => new Set((await db.Entitlement.findAll({ where: { userId, lessonId: { [Op.in]: lessonIds }, ...activeEntitlementWhere() }, attributes: ['lessonId'], transaction })).map((row) => row.lessonId));
 const expireOrder = async (order, transaction) => { if (["pending", "payment_pending", "awaiting_payment"].includes(order.status) && order.expiresAt && new Date(order.expiresAt) <= now()) { await order.update({ status: "expired" }, { transaction }); await db.OrderStatusHistory.create({ orderId: order.id, fromStatus: order.status, toStatus: "expired", paymentStatus: order.paymentStatus, reason: "pending_order_expired" }, { transaction }); return true; } return false; };
-export const serializeOrder = (order, { admin = false } = {}) => ({ id: order.id, orderNumber: order.orderNumber, status: order.status, paymentStatus: order.paymentStatus, paymentMethod: order.paymentMethod, currency: order.currency, subtotal: order.subtotal, discountTotal: order.discountTotal, total: order.total, createdAt: order.createdAt, updatedAt: order.updatedAt, expiresAt: order.expiresAt, cancelledAt: order.cancelledAt, completedAt: order.completedAt, hasSubmittedPayment: (order.Payments || []).some((payment) => payment.status === "submitted"), ...(admin && order.User ? { student: { id: order.User.id, name: order.User.name, email: order.User.email } } : {}), payments: (order.Payments || []).map((payment) => ({ id: payment.id, status: payment.status, paymentSlipResourceId: payment.paymentSlipResourceId })), items: (order.OrderItems || []).map((item) => ({ id: item.id, productId: item.productId, name: item.productNameSnapshot || item.name, productType: item.productTypeSnapshot, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.lineTotal, currency: item.currency, lessonId: item.lessonId })), statusHistory: (order.StatusHistory || []).map((entry) => ({ id: entry.id, fromStatus: entry.fromStatus, toStatus: entry.toStatus, paymentStatus: entry.paymentStatus, createdAt: entry.createdAt, reason: entry.reason })), entitlements: (order.Entitlements || []).map((entry) => ({ id: entry.id, status: entry.status, lessonId: entry.lessonId, expiresAt: entry.endsAt })),
+export const serializeOrder = (order, { admin = false } = {}) => ({ id: order.id, orderNumber: order.orderNumber, status: order.status, paymentStatus: order.paymentStatus, paymentMethod: order.paymentMethod, currency: order.currency, subtotal: order.subtotal, discountTotal: order.discountTotal, total: order.total, createdAt: order.createdAt, updatedAt: order.updatedAt, expiresAt: order.expiresAt, cancelledAt: order.cancelledAt, completedAt: order.completedAt, hasSubmittedPayment: (order.Payments || []).some((payment) => payment.status === "submitted"), ...(admin && order.User ? { student: { id: order.User.id, name: order.User.name, email: order.User.email } } : {}), payments: (order.Payments || []).map((payment) => ({ id: payment.id, status: payment.status, paymentSlipResourceId: payment.paymentSlipResourceId })), items: (order.OrderItems || []).map((item) => ({ id: item.id, productId: item.productId, name: item.productNameSnapshot || item.name, productType: item.productTypeSnapshot, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.lineTotal, currency: item.currency, lessonId: item.lessonId, medium: item.CourseTrack?.Medium ? { code: item.CourseTrack.Medium.code, name: item.CourseTrack.Medium.nameEn || item.CourseTrack.Medium.name || item.CourseTrack.Medium.code } : null })), statusHistory: (order.StatusHistory || []).map((entry) => ({ id: entry.id, fromStatus: entry.fromStatus, toStatus: entry.toStatus, paymentStatus: entry.paymentStatus, createdAt: entry.createdAt, reason: entry.reason })), entitlements: (order.Entitlements || []).map((entry) => ({ id: entry.id, status: entry.status, lessonId: entry.lessonId, expiresAt: entry.endsAt })),
 });
 
 export const createStudentOrder = async (userId, productId, idempotencyKey) => {
@@ -103,6 +105,7 @@ export const createStudentOrder = async (userId, productId, idempotencyKey) => {
     await validateProductRelations(product, transaction);
     const enrollment = await db.Enrolment.findOne({ where: { userId, courseTrackId: product.courseTrackId, status: "active" }, transaction });
     if (!enrollment) throw new ApiError(403, "Free Course enrollment is required before ordering this Exam Success Pack");
+    if (product.lessonId && !(await hasLessonEnrollment(userId, product.lessonId, transaction))) throw new ApiError(403, 'An active lesson enrolment is required before purchasing this lesson.');
     if (await hasPremiumAccess(userId, product, transaction)) throw new ApiError(409, "You already have active Exam Success Pack access for this Lesson");
     if (idempotencyKey) { const keyed = await db.Order.findOne({ where: { userId, idempotencyKey }, include: [db.OrderItem], transaction }); if (keyed) return { order: keyed, existing: true }; }
     const active = await db.Order.findAll({ where: { userId, status: ["pending", "payment_pending", "awaiting_payment"] }, include: [{ model: db.OrderItem, where: { productId }, required: true }], transaction, lock: transaction.LOCK.UPDATE });
@@ -112,13 +115,15 @@ export const createStudentOrder = async (userId, productId, idempotencyKey) => {
     await db.OrderItem.create({ orderId: order.id, productId: product.id, productNameSnapshot: product.name, productTypeSnapshot: product.productType, name: product.name, currency: "LKR", unitPrice: amount(unit), quantity: 1, lineTotal: amount(unit), courseId: product.courseId, courseTrackId: product.courseTrackId, lessonId: product.lessonId }, { transaction });
     await db.OrderStatusHistory.create({ orderId: order.id, fromStatus: null, toStatus: "payment_pending", paymentStatus: "unpaid", actorUserId: userId, reason: "student_order_created" }, { transaction });
     const createdOrder = await db.Order.findByPk(order.id, { include: [db.OrderItem], transaction });
+    await queueOrderProductSms({ order: createdOrder, product, actorUserId: userId, transaction });
     const sms = await queueStudentPaymentSms({ order: createdOrder, actorUserId: userId, eventKey: `ORDER_CREATED:${order.id}`, text: orderDetailsSmsText(createdOrder), transaction });
     return { order: createdOrder, sms, existing: false };
   });
 };
 
-export const listStudentOrders = async (userId, query = {}) => { const page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20)); const { count, rows } = await db.Order.findAndCountAll({ where: { userId }, include: [db.OrderItem], order: [["createdAt", "DESC"]], limit: pageSize, offset: (page - 1) * pageSize }); return { items: rows.map(serializeOrder), pagination: { page, pageSize, total: count } }; };
-export const studentOrder = async (userId, id) => { const order = await db.Order.findOne({ where: { id, userId }, include: [db.OrderItem, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory" }], order: [[{ model: db.OrderStatusHistory, as: "StatusHistory" }, "createdAt", "ASC"]] }); if (!order) throw new ApiError(404, "Order not found"); await db.sequelize.transaction((transaction) => expireOrder(order, transaction)); return serializeOrder(order); };
+const studentOrderItems = { model: db.OrderItem, include: [{ model: db.CourseTrack, include: [db.Medium] }] };
+export const listStudentOrders = async (userId, query = {}) => { const page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(50, Math.max(1, Number(query.pageSize) || 20)); const { count, rows } = await db.Order.findAndCountAll({ where: { userId }, include: [studentOrderItems], distinct: true, order: [["createdAt", "DESC"]], limit: pageSize, offset: (page - 1) * pageSize }); return { items: rows.map(serializeOrder), pagination: { page, pageSize, total: count } }; };
+export const studentOrder = async (userId, id) => { const order = await db.Order.findOne({ where: { id, userId }, include: [studentOrderItems, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory" }], order: [[{ model: db.OrderStatusHistory, as: "StatusHistory" }, "createdAt", "ASC"]] }); if (!order) throw new ApiError(404, "Order not found"); await db.sequelize.transaction((transaction) => expireOrder(order, transaction)); return serializeOrder(order); };
 export const submitStudentBankDeposit = async (userId, id) => db.sequelize.transaction(async (transaction) => {
   const order = await db.Order.findOne({ where: { id, userId }, transaction, lock: transaction.LOCK.UPDATE });
   if (!order) throw new ApiError(404, "Order not found");
@@ -130,8 +135,41 @@ export const submitStudentBankDeposit = async (userId, id) => db.sequelize.trans
   return serializeOrder(order);
 });
 export const bankDepositSmsText = (order, account) => `A Plus ICT PAYMENT\nOrder:${order.orderNumber} | Rs${String(order.total).replace(/\.00$/, "")}\nBank: ${account.bank.replace(/ Bank$/, "")}\nBr: ${account.branch}\nA/C: ${account.accountName}\nNo: ${account.accountNumber}\naplusict.lk`;
-export const receiptUploadSmsText = (order) => `A Plus ICT PAYMENT\nUpload receipt:\n${env.publicWebUrl}/student/orders/${order.id}/payment/bank-deposit`;
+export const receiptUploadSmsText = (order) => `A Plus ICT PAYMENT\nOrder:${order.orderNumber}\nUpload receipt:\n${env.publicWebUrl}/student/orders/${order.id}/payment/bank-deposit`;
 export const orderDetailsSmsText = (order) => `A Plus ICT ORDER\nOrder:${order.orderNumber}\nAmount: Rs${String(order.total).replace(/\.00$/, "")}\n\nOrder ready. Choose payment:\n${env.publicWebUrl}/student/orders/${order.id}`;
+const smsLabel = (value) => String(value || "").replace(/\s+/g, " ").trim();
+export const orderProductSmsTexts = (order, product) => {
+  const course = smsLabel(product.Course?.titleEn || product.Course?.title || product.CourseTrack?.title);
+  const medium = smsLabel(product.CourseTrack?.Medium?.nameEn || product.CourseTrack?.Medium?.name || product.CourseTrack?.Medium?.code);
+  const lesson = smsLabel(product.Lesson?.titleEn || product.Lesson?.title);
+  const number = product.Lesson?.lessonNumber;
+  const details = [
+    course && `Course: ${course}`,
+    lesson && `Lesson${number != null ? ` ${String(number).padStart(2, "0")}` : ""}: ${lesson}`,
+    medium && `Medium: ${medium}`,
+  ].filter(Boolean).join("\n") || `Product: ${smsLabel(product.name)}`;
+  const header = `A Plus ICT ORDER\nOrder:${order.orderNumber}\n`;
+  const capacity = 160 - [...header].length;
+  const messages = [];
+  let remaining = [...details];
+  while (remaining.length) {
+    let end = Math.min(capacity, remaining.length);
+    if (end < remaining.length) {
+      const boundary = remaining.slice(0, end + 1).findLastIndex((character) => /\s/.test(character));
+      if (boundary > 0) end = boundary;
+    }
+    messages.push(header + remaining.slice(0, end).join(""));
+    remaining = remaining.slice(end);
+    while (remaining.length && /\s/.test(remaining[0])) remaining.shift();
+  }
+  return messages;
+};
+export const queueOrderProductSms = async ({ order, product, actorUserId, transaction }) => {
+  const messages = orderProductSmsTexts(order, product);
+  const results = [];
+  for (const [index, text] of messages.entries()) results.push(await queueStudentPaymentSms({ order, actorUserId, transaction, eventKey: `ORDER_PRODUCT:${order.id}:${index + 1}`, text }));
+  return results;
+};
 export const studentOrderUrl = (order) => `${env.publicWebUrl}/student/orders/${order.id}`;
 export const receiptReceivedSmsText = (order) => `A Plus ICT PAYMENT\nReceipt received.\nOrder:${order.orderNumber}\nYour payment is under review.\nWe will notify you after verification.\naplusict.lk`;
 export const paymentApprovedSmsText = (order) => `A Plus ICT PAYMENT\nPayment approved.\nOrder:${order.orderNumber}\nAccess active.\nStart learning:\n${studentOrderUrl(order)}`;
@@ -144,7 +182,8 @@ export const queueStudentPaymentSms = async ({ order, actorUserId, eventKey, tex
   let recipient;
   try { recipient = normalizeSriLankanMobile(profile?.mobileNumber); }
   catch { return { skipped: true, reason: "student_mobile_invalid" }; }
-  return queueAutomatedSms({ recipient, text, category: "payment", messageType: 0, contentType: "standard" }, actorUserId, eventKey, { transaction });
+  const contentType = [...text].some((character) => character.codePointAt(0) > 127) ? "multilingual" : "standard";
+  return queueAutomatedSms({ recipient, text, category: "payment", messageType: 0, contentType }, actorUserId, eventKey, { transaction });
 };
 export const sendStudentBankDepositPaymentDetails = async (userId, id, bankAccountIds) => {
   const selectedIds = [...new Set(Array.isArray(bankAccountIds) ? bankAccountIds : [])];
@@ -182,7 +221,21 @@ export const submitStudentBankTransfer = async (userId, id) => db.sequelize.tran
 });
 export const cancelStudentOrder = async (userId, id) => db.sequelize.transaction(async (transaction) => { const order = await db.Order.findOne({ where: { id, userId }, transaction, lock: transaction.LOCK.UPDATE }); if (!order) throw new ApiError(404, "Order not found"); await expireOrder(order, transaction); if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status) || !["unpaid", "pending"].includes(order.paymentStatus)) throw new ApiError(409, "Only unpaid pending Orders can be cancelled"); const fromStatus = order.status; await order.update({ status: "cancelled", cancelledAt: now() }, { transaction }); await db.OrderStatusHistory.create({ orderId: id, fromStatus, toStatus: "cancelled", paymentStatus: order.paymentStatus, actorUserId: userId, reason: "student_cancelled" }, { transaction }); return serializeOrder(order); });
 
-export const grantOrderEntitlements = async (order, actorUserId, transaction) => { const items = await db.OrderItem.findAll({ where: { orderId: order.id }, transaction }); const results = []; for (const item of items) { const rules = await db.ProductEntitlementRule.findAll({ where: { productId: item.productId }, transaction }); for (const rule of rules) { const existing = await db.Entitlement.findOne({ where: { userId: order.userId, sourceType: "order", sourceId: order.id, lessonId: rule.lessonId, entitlementType: rule.entitlementType }, transaction }); if (existing) { results.push(existing); continue; } const startsAt = now(), days = rule.durationDays ?? (await db.Product.findByPk(item.productId, { transaction }))?.entitlementDurationDays, endsAt = days ? new Date(startsAt.getTime() + Number(days) * 86400000) : null; const active = await db.Entitlement.findOne({ where: { userId: order.userId, entitlementType: rule.entitlementType, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, ...activeEntitlementWhere() }, transaction }); if (active) { results.push(active); continue; } results.push(await db.Entitlement.create({ userId: order.userId, entitlementType: rule.entitlementType, courseId: rule.courseId, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, activityId: rule.activityId, orderId: order.id, sourceType: "order", sourceId: order.id, status: "active", startsAt, endsAt, grantedBy: actorUserId }, { transaction })); } } return results; };
+export const grantOrderEntitlements = async (order, actorUserId, transaction) => {
+  if (order.paymentStatus !== 'verified' || !order.completedAt) throw new ApiError(409, 'Successful payment confirmation is required before granting lesson access');
+  const items = await db.OrderItem.findAll({ where: { orderId: order.id }, transaction });
+  const results = [];
+  for (const item of items) {
+    const rules = await db.ProductEntitlementRule.findAll({ where: { productId: item.productId }, transaction });
+    for (const rule of rules) {
+      const existing = await db.Entitlement.findOne({ where: { userId: order.userId, sourceType: 'order', sourceId: order.id, lessonId: rule.lessonId, entitlementType: rule.entitlementType }, transaction });
+      if (existing) { results.push(existing); continue; }
+      const startsAt = new Date(order.completedAt), endsAt = purchasedLessonExpiry(startsAt);
+      results.push(await db.Entitlement.create({ userId: order.userId, entitlementType: rule.entitlementType, courseId: rule.courseId, courseTrackId: rule.courseTrackId, lessonId: rule.lessonId, activityId: rule.activityId, orderId: order.id, sourceType: 'order', sourceId: order.id, status: 'active', startsAt, endsAt, grantedBy: actorUserId }, { transaction }));
+    }
+  }
+  return results;
+};
 export const verifyOrderPayment = async (id, actorUserId) => db.sequelize.transaction(async (transaction) => { const order = await db.Order.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE }); if (!order) throw new ApiError(404, "Order not found"); if (["paid", "completed"].includes(order.status) && order.paymentStatus === "verified") { const sms = await queueStudentPaymentSms({ order, actorUserId, eventKey: `PAYMENT_APPROVED:${order.id}`, text: paymentApprovedSmsText(order), transaction }); return { order, entitlements: await db.Entitlement.findAll({ where: { sourceType: "order", sourceId: order.id }, transaction }), sms, idempotent: true }; } if (!["pending", "payment_pending", "awaiting_payment"].includes(order.status)) throw new ApiError(409, "Order is not eligible for manual payment verification"); const fromStatus = order.status; await order.update({ status: "completed", paymentStatus: "verified", paymentMethod: order.paymentMethod || "manual_verification", completedAt: now() }, { transaction }); const entitlements = await grantOrderEntitlements(order, actorUserId, transaction); await db.OrderStatusHistory.create({ orderId: order.id, fromStatus, toStatus: "completed", paymentStatus: "verified", actorUserId, reason: "manual_payment_verified" }, { transaction }); const sms = await queueStudentPaymentSms({ order, actorUserId, eventKey: `PAYMENT_APPROVED:${order.id}`, text: paymentApprovedSmsText(order), transaction }); return { order, entitlements, sms, idempotent: false }; });
 export const listAdminOrders = async (query = {}) => { const page = Math.max(1, Number(query.page) || 1), pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 25)); const where = Object.fromEntries(["status", "paymentStatus"].filter((key) => query[key]).map((key) => [key, query[key]])); const { count, rows } = await db.Order.findAndCountAll({ where, include: [{ model: db.User, attributes: ["id", "name", "email"] }, db.OrderItem, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory", required: false }], order: [["createdAt", "DESC"]], limit: pageSize, offset: (page - 1) * pageSize, distinct: true }); return { items: rows.map((row) => serializeOrder(row, { admin: true })), pagination: { page, pageSize, total: count } }; };
 export const adminOrder = async (id) => { const order = await db.Order.findByPk(id, { include: [{ model: db.User, attributes: ["id", "name", "email"] }, db.OrderItem, db.Payment, { model: db.OrderStatusHistory, as: "StatusHistory" }, { model: db.Entitlement, as: "Entitlements", required: false }], order: [[{ model: db.OrderStatusHistory, as: "StatusHistory" }, "createdAt", "ASC"]] }); if (!order) throw new ApiError(404, "Order not found"); return serializeOrder(order, { admin: true }); };

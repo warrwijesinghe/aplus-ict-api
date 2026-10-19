@@ -3,6 +3,8 @@ import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { hasCourseAssignment, privilegedRoles } from "../../security/authorization.js";
 import { entitledLessonIds } from "../commerce/commerce.service.js";
+import { hasLessonEnrollment } from '../students/lesson-enrollment.service.js';
+import { accessibleProgress } from './progress.service.js';
 
 export const PREREQUISITE_COMBINATION = "all";
 const selfPacedPrerequisiteTypes = new Set([
@@ -13,7 +15,6 @@ const selfPacedPrerequisiteTypes = new Set([
 const now = () => new Date();
 const title = (row) => row?.titleEn || row?.title || "this activity";
 const active = { status: "published", isVisible: { [Op.ne]: false } };
-const percent = (done, total) => total ? Math.round((done / total) * 100) : 0;
 
 const trackForActivity = async (activityId, transaction) => {
   const activity = await db.LessonSection.findByPk(activityId, { include: [{ model: db.Lesson, include: [db.CourseTrack] }, db.Topic], transaction });
@@ -64,6 +65,7 @@ export const accessState = async (userId, activityId, transaction) => {
     db.TeacherActivityApproval.findAll({ where: { userId, activityId, revokedAt: null }, transaction }),
   ]);
   const unmetRequirements = [];
+  if (!(await hasLessonEnrollment(userId, activity.lessonId, transaction))) unmetRequirements.push({ type: 'lesson_enrollment', message: 'An active lesson enrolment is required.' });
   if (premiumLocked(activity, entitled)) unmetRequirements.push({ type: "premium", message: "Exam Success Pack access is required." });
   for (const rule of rules) {
     // Learning is self-paced: students can start any lesson, topic, or free
@@ -104,10 +106,12 @@ export const clearManualCompletion = async (userId, activityId, transaction) => 
 export const progressForCourse = async (userId, trackId, transaction) => {
   const { lessons, topics, activities } = await courseActivities(trackId, transaction);
   const entitled = await entitlementLessons(userId, lessons.map((row) => row.id), transaction);
-  const applicable = activities.filter((row) => row.completionMode !== "none" && !premiumLocked(row, entitled));
-  const completions = await completionMap(userId, applicable.map((row) => row.id), transaction);
-  const summary = (rows) => { const requiredCount = rows.length; const completedCount = rows.filter((row) => completions.get(row.id)?.status === "completed").length; return { completedCount, requiredCount, percentage: percent(completedCount, requiredCount), status: requiredCount && completedCount === requiredCount ? "completed" : completedCount ? "in_progress" : "not_started" }; };
-  return { course: summary(applicable), lessons: lessons.map((lesson) => ({ lessonId: lesson.id, ...summary(applicable.filter((row) => row.lessonId === lesson.id)) })), topics: topics.map((topic) => ({ topicId: topic.id, ...summary(applicable.filter((row) => row.topicId === topic.id)) })) };
+  const completions = await completionMap(userId, activities.map((row) => row.id), transaction);
+  const summary = (rows, hasFullAccess) => accessibleProgress(rows.map((row) => ({ completionMode: row.completionMode, accessPolicy: row.accessPolicy, isRequired: row.isRequired, progress: completions.get(row.id) })), { hasFullAccess });
+  const lessonIdsWithRequiredContent = new Set(activities.filter((row) => row.completionMode !== 'none').map((row) => row.lessonId));
+  return { course: summary(activities, [...lessonIdsWithRequiredContent].every((id) => entitled.has(id))),
+    lessons: lessons.map((lesson) => ({ lessonId: lesson.id, ...summary(activities.filter((row) => row.lessonId === lesson.id), entitled.has(lesson.id)) })),
+    topics: topics.map((topic) => ({ topicId: topic.id, ...summary(activities.filter((row) => row.topicId === topic.id), entitled.has(topic.lessonId)) })) };
 };
 
 export const gradebookForStudent = async (userId, trackId, { teacher = false, transaction } = {}) => {

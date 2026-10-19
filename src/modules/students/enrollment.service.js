@@ -1,6 +1,7 @@
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { requireCompletedProfile } from "./student-profile.service.js";
+import { enrollLesson } from './lesson-enrollment.service.js';
 
 const trackInclude = [
   { model: db.Course, where: { status: "published", isPublic: true }, include: [db.AcademicLevel] },
@@ -37,7 +38,7 @@ export const getEnrollment = async (userId, courseTrackId) => {
   return enrollment ? enrollmentView(enrollment) : null;
 };
 
-export const enrollStudent = async (userId, courseTrackId) => db.sequelize.transaction(async (transaction) => {
+export const enrollStudent = async (userId, courseTrackId, lessonSlug = null) => db.sequelize.transaction(async (transaction) => {
   // `requireCompletedProfile` applies only to student accounts, so staff and
   // administrator accounts can self-enrol as well.
   await requireCompletedProfile(userId);
@@ -50,7 +51,8 @@ export const enrollStudent = async (userId, courseTrackId) => db.sequelize.trans
   if (!created && !enrollment.lastAccessedAt) await enrollment.update({ lastAccessedAt: new Date() }, { transaction });
   if (created) await db.StudentLearningHistory.create({ userId, courseTrackId, eventType: "course_enrolled", occurredAt: new Date(), metadata: { source: "free" } }, { transaction });
   const hydrated = await db.Enrolment.findByPk(enrollment.id, { include: [{ model: db.CourseTrack, include: trackInclude }], transaction });
-  return enrollmentView(hydrated);
+  const lessonEnrollment = lessonSlug ? await enrollLesson(userId, courseTrackId, lessonSlug, transaction) : null;
+  return { ...enrollmentView(hydrated), lessonEnrollment };
 });
 
 export const unenrollStudent = async (userId, courseTrackId) => db.sequelize.transaction(async (transaction) => {

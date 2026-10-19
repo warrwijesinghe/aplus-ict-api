@@ -14,6 +14,7 @@ export const defineCourse = (sequelize) =>
     courseGroup: DataTypes.STRING,
     academicLevel: { type: DataTypes.ENUM("al", "ol"), defaultValue: "al" },
     description: DataTypes.TEXT,
+    tutorialImageResourceId: DataTypes.UUID,
     shortDescriptionEn: DataTypes.TEXT,
     shortDescriptionSi: DataTypes.TEXT,
     status: {
