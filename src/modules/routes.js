@@ -45,7 +45,6 @@ import { createContentAdminRouter } from "./content/admin-content.routes.js";
 import { isPremium } from "./content/activity-registry.js";
 import { publishedWhere } from "./content/content.service.js";
 import studentPlayerRoutes from "./learning/student-player.routes.js";
-import { createQuestionBankRouter } from "./question-bank/question-bank.routes.js";
 import { createQuizRouter } from "./quiz/quiz.routes.js";
 import { createQuizAttemptRouter } from "./quiz/quiz-attempt.routes.js";
 import completionGradebookRoutes from "./learning/completion-gradebook.routes.js";
@@ -102,7 +101,7 @@ router.patch("/admin/educators/:userId/role", authenticate, requirePermission(PE
 }));
 router.get("/admin/educator-assignments", authenticate, requirePermission(PERMISSIONS.EDUCATORS_READ), asyncHandler(async (_req, res) => send(res, await db.EducatorAssignment.findAll({ include: assignmentInclude, order: [["createdAt", "DESC"]] }))));
 router.post("/admin/educator-assignments", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => {
-  const values = Object.fromEntries(["userId", "courseId", "courseTrackId", "assignmentRole", "canManageContent", "canManageQuestions", "canManageQuizzes", "canGradeAssignments", "canViewStudents"].filter((key) => key in req.body).map((key) => [key, req.body[key]]));
+  const values = Object.fromEntries(["userId", "courseId", "courseTrackId", "assignmentRole", "canManageContent", "canManageQuizzes", "canGradeAssignments", "canViewStudents"].filter((key) => key in req.body).map((key) => [key, req.body[key]]));
   if (!values.userId || !values.assignmentRole || (!values.courseId && !values.courseTrackId) || !["teacher", "content_editor"].includes(values.assignmentRole)) throw new ApiError(422, "Educator, assignment role, and a course or track are required");
   const [user, course, track] = await Promise.all([db.User.findByPk(values.userId), values.courseId ? db.Course.findByPk(values.courseId) : null, values.courseTrackId ? db.CourseTrack.findByPk(values.courseTrackId) : null]);
   if (!user || (values.courseId && !course) || (values.courseTrackId && !track) || (track && values.courseId && track.courseId !== values.courseId)) throw new ApiError(422, "The selected educator, course, or track is invalid");
@@ -110,11 +109,11 @@ router.post("/admin/educator-assignments", authenticate, requirePermission(PERMI
   if (duplicate) throw new ApiError(409, "An active assignment already exists");
   const assignment = await db.EducatorAssignment.create({ ...values, assignedByUserId: req.user.sub, assignedAt: new Date() }); await audit(req, "educator_assigned", "educator_assignment", assignment.id, { userId: assignment.userId, courseId: assignment.courseId, courseTrackId: assignment.courseTrackId }); send(res, assignment, 201);
 }));
-router.patch("/admin/educator-assignments/:id", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => { const assignment = await db.EducatorAssignment.findByPk(req.params.id); if (!assignment) throw new ApiError(404, "Assignment not found"); const fields = ["canManageContent", "canManageQuestions", "canManageQuizzes", "canGradeAssignments", "canViewStudents", "status"]; await assignment.update(Object.fromEntries(fields.filter((field) => field in req.body).map((field) => [field, req.body[field]]))); await audit(req, "educator_assignment_updated", "educator_assignment", assignment.id, { status: assignment.status }); send(res, assignment); }));
+router.patch("/admin/educator-assignments/:id", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => { const assignment = await db.EducatorAssignment.findByPk(req.params.id); if (!assignment) throw new ApiError(404, "Assignment not found"); const fields = ["canManageContent", "canManageQuizzes", "canGradeAssignments", "canViewStudents", "status"]; await assignment.update(Object.fromEntries(fields.filter((field) => field in req.body).map((field) => [field, req.body[field]]))); await audit(req, "educator_assignment_updated", "educator_assignment", assignment.id, { status: assignment.status }); send(res, assignment); }));
 router.delete("/admin/educator-assignments/:id", authenticate, requirePermission(PERMISSIONS.EDUCATORS_ASSIGN), asyncHandler(async (req, res) => { const assignment = await db.EducatorAssignment.findByPk(req.params.id); if (!assignment) throw new ApiError(404, "Assignment not found"); await assignment.update({ status: "inactive" }); await audit(req, "educator_assignment_removed", "educator_assignment", assignment.id); send(res, { id: assignment.id, status: assignment.status }); }));
 
 // Educator workspaces expose only explicitly assigned tracks. Privileged roles retain operational access.
-router.get("/educator/tracks", authenticate, requirePermission(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const where = req.user.role === "admin" || req.user.role === "super_admin" ? {} : { userId: req.user.sub, status: "active" }; const assignments = await db.EducatorAssignment.findAll({ where, include: [{ model: db.CourseTrack, include: [db.Medium, db.Course] }] }); send(res, assignments.map((assignment) => ({ assignmentId: assignment.id, capabilities: { canManageContent: assignment.canManageContent, canManageQuestions: assignment.canManageQuestions, canManageQuizzes: assignment.canManageQuizzes, canGradeAssignments: assignment.canGradeAssignments, canViewStudents: assignment.canViewStudents }, track: assignment.CourseTrack }))); }));
+router.get("/educator/tracks", authenticate, requirePermission(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const where = req.user.role === "admin" || req.user.role === "super_admin" ? {} : { userId: req.user.sub, status: "active" }; const assignments = await db.EducatorAssignment.findAll({ where, include: [{ model: db.CourseTrack, include: [db.Medium, db.Course] }] }); send(res, assignments.map((assignment) => ({ assignmentId: assignment.id, capabilities: { canManageContent: assignment.canManageContent, canManageQuizzes: assignment.canManageQuizzes, canGradeAssignments: assignment.canGradeAssignments, canViewStudents: assignment.canViewStudents }, track: assignment.CourseTrack }))); }));
 router.get("/educator/tracks/:trackId", ...requirePermissionForTrack(PERMISSIONS.TRACKS_READ), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId, { include: [db.Course, db.Medium] }); if (!track) throw new ApiError(404, "Course track not found"); send(res, track); }));
 router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(PERMISSIONS.LESSONS_UPDATE, "canManageContent"), asyncHandler(async (req, res) => { const track = await db.CourseTrack.findByPk(req.params.trackId); if (!track) throw new ApiError(404, "Course track not found"); const { title, status } = req.body; await track.update(Object.fromEntries([["title", title], ["status", status]].filter(([, value]) => value !== undefined))); send(res, track); }));
 
@@ -122,7 +121,6 @@ router.patch("/educator/tracks/:trackId/content", ...requirePermissionForTrack(P
 // course-track assignments. Legacy /admin/sections remains below for clients
 // that have not yet moved to the Learning Activity label.
 router.use(createContentAdminRouter());
-router.use(createQuestionBankRouter());
 router.use(createQuizRouter());
 router.use(createQuizAttemptRouter());
 router.use(completionGradebookRoutes);

@@ -15,8 +15,8 @@ export const errorHandler = (err, req, res, _next) => {
   if (status >= 500) console.error(err);
   res.status(status).json({
     error: {
-      message: err.message || "Internal server error",
-      details: err.details,
+      message: err.name === "SequelizeDatabaseError" ? "A database error prevented the request. Please try again." : err.message || "Internal server error",
+      details: err.name === "SequelizeDatabaseError" ? undefined : err.details,
     },
   });
 };

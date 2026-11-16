@@ -1,10 +1,11 @@
+import { loadRandomRules } from "./quiz-schema.js";
 import crypto from "crypto";
 import { Op } from "sequelize";
 import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { sanitizeEducationalHtml } from "../content/activities/html-sanitizer.js";
 import { canAccessContent } from "../learning/access.service.js";
-import { candidateWhere } from "./quiz.service.js";
+import { ruleQuestionWhere } from "./quiz.service.js";
 import { recordCompletion } from "../learning/completion-gradebook.service.js";
 import { accessState } from "../learning/completion-gradebook.service.js";
 import { requireCompletedProfile } from "../students/student-profile.service.js";
@@ -60,9 +61,9 @@ const buildAttemptQuestions = async (quiz, transaction) => {
   const manualRows = await db.QuizQuestion.findAll({ where: { quizId: quiz.id }, include: [{ model: db.Question, as: "Question", required: true, include: questionIncludes }], order: [["sortOrder", "ASC"]], transaction });
   const selected = [], selectedIds = new Set();
   for (const row of manualRows) if (row.Question.status === "published" && !row.Question.archivedAt) { selected.push({ question: questionPlain(row.Question), quizQuestionId: row.id, marks: Number(row.marks) }); selectedIds.add(row.Question.id); }
-  const rules = await db.QuizRandomRule.findAll({ where: { quizId: quiz.id }, order: [["sortOrder", "ASC"]], transaction });
+  const rules = await loadRandomRules(quiz.id, transaction);
   for (const rule of rules) {
-    const candidates = await db.Question.findAll({ where: { ...candidateWhere(quiz, rule.get({ plain: true })), id: { [Op.notIn]: [...selectedIds] }, archivedAt: null }, include: questionIncludes, transaction });
+    const candidates = await db.Question.findAll({ where: ruleQuestionWhere(rule, [...selectedIds]), include: questionIncludes, transaction });
     if (candidates.length < rule.questionCount) throw new ApiError(422, "Not enough eligible Questions for this Quiz attempt");
     for (const item of shuffled(candidates).slice(0, rule.questionCount)) { const question = questionPlain(item); selected.push({ question, quizQuestionId: null, marks: Number(rule.marksPerQuestion) }); selectedIds.add(question.id); }
   }

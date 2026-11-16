@@ -112,7 +112,7 @@ export const createContentAdminRouter = () => {
   router.delete("/admin/courses/:id", authenticate, requirePermission(PERMISSIONS.COURSES_ARCHIVE), asyncHandler(async (req, res) => {
     if (!privileged(req)) throw new ApiError(403, "Only administrators can delete courses");
     const course = await assertParent(db.Course, req.params.id, "Course not found");
-    const references = await Promise.all([db.CourseTrack, db.Product, db.ProductEntitlementRule, db.OrderItem, db.Entitlement, db.Enrolment, db.EducatorAssignment, db.QuestionCategory, db.Question, db.QuestionTag, db.Quiz].map((Model) =>
+    const references = await Promise.all([db.CourseTrack, db.Product, db.ProductEntitlementRule, db.OrderItem, db.Entitlement, db.Enrolment, db.EducatorAssignment, db.Question, db.Quiz].map((Model) =>
       Model.count({ where: { courseId: course.id } })));
     if (references.some(Boolean)) throw new ApiError(409, "This course has linked records. Archive it instead.");
     await course.destroy();
@@ -166,7 +166,7 @@ export const createContentAdminRouter = () => {
       const lesson = await db.Lesson.findByPk(req.params.id, { transaction, lock: transaction.LOCK.UPDATE });
       if (!lesson) throw new ApiError(404, "Lesson not found");
       if (lesson.status !== "draft") throw new ApiError(409, "Only unused drafts can be deleted. Archive this lesson instead.");
-      const dependencies = [db.Topic, db.LessonSection, db.LessonEnrolment, db.LessonProgress, db.ActivityCompletion, db.Product, db.OrderItem, db.Entitlement, db.ProductEntitlementRule, db.QuestionCategory, db.Question, db.Quiz, db.StudentLearningHistory];
+      const dependencies = [db.Topic, db.LessonSection, db.LessonEnrolment, db.LessonProgress, db.ActivityCompletion, db.Product, db.OrderItem, db.Entitlement, db.ProductEntitlementRule, db.Question, db.Quiz, db.StudentLearningHistory];
       const counts = await Promise.all(dependencies.map((Model) => Model.count({ where: { lessonId: lesson.id }, transaction })));
       if (counts.some(Boolean)) throw new ApiError(409, "This lesson has linked records. Archive it instead.");
       await lesson.destroy({ transaction });

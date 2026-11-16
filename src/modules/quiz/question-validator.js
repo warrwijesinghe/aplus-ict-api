@@ -7,7 +7,7 @@ const cleanHtml = (value, field) => { if (value === null) return null; const cle
 const decimal = (value, field, { min = null } = {}) => { if (value === null || value === undefined || value === "") return null; if (!/^[-+]?\d+(?:\.\d+)?$/.test(String(value))) throw new ApiError(422, `${field} must be a decimal number`); const number = Number(value); if (min !== null && number < min) throw new ApiError(422, `${field} must be at least ${min}`); return String(value); };
 export const validateQuestionDraft = (body, current = {}) => {
   const values = {};
-  for (const field of ["questionCategoryId", "courseId", "courseTrackId", "lessonId", "topicId", "title", "questionTextFormat", "difficulty", "negativeMarks", "defaultMarks"]) if (has(body, field)) values[field] = body[field];
+  for (const field of ["courseId", "courseTrackId", "lessonId", "topicId", "title", "questionTextFormat", "difficulty", "negativeMarks", "defaultMarks"]) if (has(body, field)) values[field] = body[field];
   for (const field of ["lessonId", "topicId"]) if (values[field] === "") values[field] = null;
   if (has(body, "questionType")) { getQuestionType(body.questionType); values.questionType = body.questionType; }
   if (has(body, "difficulty") && !QUESTION_DIFFICULTIES.includes(body.difficulty)) throw new ApiError(422, "Invalid difficulty");

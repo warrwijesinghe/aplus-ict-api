@@ -35,7 +35,7 @@ import { defineDownloadableResource } from "./downloadable-resource.model.js";
 import { defineEducatorAssignment } from "./educator-assignment.model.js";
 import { defineAuditLog } from "./audit-log.model.js";
 import { defineResourceLink } from "./resource-link.model.js";
-import { defineQuestionCategory, defineQuestion, defineQuestionOption, defineQuestionAcceptedAnswer, defineQuestionNumericAnswer, defineQuestionMatchingPair, defineQuestionOrderingItem, defineQuestionEssayConfig, defineQuestionTag, defineQuestionTagAssignment } from "./question-bank.model.js";
+import { defineQuestion, defineQuestionOption, defineQuestionAcceptedAnswer, defineQuestionNumericAnswer, defineQuestionMatchingPair, defineQuestionOrderingItem, defineQuestionEssayConfig } from "./quiz-question-content.model.js";
 import { defineQuiz, defineQuizQuestion, defineQuizRandomRule } from "./quiz.model.js";
 import { defineQuizAttempt, defineQuizAttemptQuestion, defineQuizAnswer, defineQuizAnswerOption, defineQuizAnswerMatchingItem, defineQuizAnswerOrderingItem, defineQuizGrade } from "./quiz-attempt.model.js";
 import { defineActivityCompletion } from "./activity-completion.model.js";
@@ -79,7 +79,6 @@ export const DownloadableResource = defineDownloadableResource(sequelize);
 export const EducatorAssignment = defineEducatorAssignment(sequelize);
 export const AuditLog = defineAuditLog(sequelize);
 export const ResourceLink = defineResourceLink(sequelize);
-export const QuestionCategory = defineQuestionCategory(sequelize);
 export const Question = defineQuestion(sequelize);
 export const QuestionOption = defineQuestionOption(sequelize);
 export const QuestionAcceptedAnswer = defineQuestionAcceptedAnswer(sequelize);
@@ -87,8 +86,6 @@ export const QuestionNumericAnswer = defineQuestionNumericAnswer(sequelize);
 export const QuestionMatchingPair = defineQuestionMatchingPair(sequelize);
 export const QuestionOrderingItem = defineQuestionOrderingItem(sequelize);
 export const QuestionEssayConfig = defineQuestionEssayConfig(sequelize);
-export const QuestionTag = defineQuestionTag(sequelize);
-export const QuestionTagAssignment = defineQuestionTagAssignment(sequelize);
 export const Quiz = defineQuiz(sequelize);
 export const QuizQuestion = defineQuizQuestion(sequelize);
 export const QuizRandomRule = defineQuizRandomRule(sequelize);
@@ -192,14 +189,8 @@ Resource.hasMany(ResourceLink, { foreignKey: "resourceId", as: "Links" });
 ResourceLink.belongsTo(Resource, { foreignKey: "resourceId" });
 Resource.belongsTo(Resource, { foreignKey: "replacedByResourceId", as: "Replacement" });
 Lesson.belongsTo(Resource, { foreignKey: "tutorialImageResourceId", as: "TutorialImage" });
-Course.hasMany(QuestionCategory, { foreignKey: "courseId" }); QuestionCategory.belongsTo(Course, { foreignKey: "courseId" });
-CourseTrack.hasMany(QuestionCategory, { foreignKey: "courseTrackId" }); QuestionCategory.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
-Lesson.hasMany(QuestionCategory, { foreignKey: "lessonId" }); QuestionCategory.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(QuestionCategory, { foreignKey: "topicId" }); QuestionCategory.belongsTo(Topic, { foreignKey: "topicId" });
-QuestionCategory.hasMany(QuestionCategory, { foreignKey: "parentCategoryId", as: "Children" }); QuestionCategory.belongsTo(QuestionCategory, { foreignKey: "parentCategoryId", as: "Parent" });
-QuestionCategory.hasMany(Question, { foreignKey: "questionCategoryId" }); Question.belongsTo(QuestionCategory, { foreignKey: "questionCategoryId" });
 Course.hasMany(Question, { foreignKey: "courseId" }); Question.belongsTo(Course, { foreignKey: "courseId" }); CourseTrack.hasMany(Question, { foreignKey: "courseTrackId" }); Question.belongsTo(CourseTrack, { foreignKey: "courseTrackId" }); Lesson.hasMany(Question, { foreignKey: "lessonId" }); Question.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(Question, { foreignKey: "topicId" }); Question.belongsTo(Topic, { foreignKey: "topicId" });
 Question.hasMany(QuestionOption, { foreignKey: "questionId", as: "Options" }); QuestionOption.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionAcceptedAnswer, { foreignKey: "questionId", as: "AcceptedAnswers" }); QuestionAcceptedAnswer.belongsTo(Question, { foreignKey: "questionId" }); Question.hasOne(QuestionNumericAnswer, { foreignKey: "questionId", as: "NumericAnswer" }); QuestionNumericAnswer.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionMatchingPair, { foreignKey: "questionId", as: "MatchingPairs" }); QuestionMatchingPair.belongsTo(Question, { foreignKey: "questionId" }); Question.hasMany(QuestionOrderingItem, { foreignKey: "questionId", as: "OrderingItems" }); QuestionOrderingItem.belongsTo(Question, { foreignKey: "questionId" }); Question.hasOne(QuestionEssayConfig, { foreignKey: "questionId", as: "EssayConfig" }); QuestionEssayConfig.belongsTo(Question, { foreignKey: "questionId" });
-Course.hasMany(QuestionTag, { foreignKey: "courseId" }); QuestionTag.belongsTo(Course, { foreignKey: "courseId" }); Question.belongsToMany(QuestionTag, { through: QuestionTagAssignment, foreignKey: "questionId", as: "Tags" }); QuestionTag.belongsToMany(Question, { through: QuestionTagAssignment, foreignKey: "questionTagId" });
 Question.hasMany(ResourceLink, { foreignKey: "entityId", as: "ResourceLinks", constraints: false });
 LessonSection.hasOne(Quiz, { foreignKey: "lessonSectionId", as: "Quiz" }); Quiz.belongsTo(LessonSection, { foreignKey: "lessonSectionId", as: "Activity" });
 Course.hasMany(Quiz, { foreignKey: "courseId" }); Quiz.belongsTo(Course, { foreignKey: "courseId" }); CourseTrack.hasMany(Quiz, { foreignKey: "courseTrackId" }); Quiz.belongsTo(CourseTrack, { foreignKey: "courseTrackId" }); Lesson.hasMany(Quiz, { foreignKey: "lessonId" }); Quiz.belongsTo(Lesson, { foreignKey: "lessonId" }); Topic.hasMany(Quiz, { foreignKey: "topicId" }); Quiz.belongsTo(Topic, { foreignKey: "topicId" });
@@ -254,7 +245,7 @@ export const db = {
   EducatorAssignment,
   AuditLog,
   ResourceLink,
-  QuestionCategory, Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig, QuestionTag, QuestionTagAssignment,
+  Question, QuestionOption, QuestionAcceptedAnswer, QuestionNumericAnswer, QuestionMatchingPair, QuestionOrderingItem, QuestionEssayConfig,
   Quiz, QuizQuestion, QuizRandomRule, QuizAttempt, QuizAttemptQuestion, QuizAnswer, QuizAnswerOption, QuizAnswerMatchingItem, QuizAnswerOrderingItem, QuizGrade,
   ActivityCompletion, ActivityPrerequisite, TeacherActivityApproval, TeacherGradeComment,
   SmsMessage, SmsMessageAttempt, SmsInboundMessage,
