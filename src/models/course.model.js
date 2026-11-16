@@ -5,8 +5,6 @@ export const defineCourse = (sequelize) =>
     categoryId: DataTypes.UUID,
     academicLevelId: DataTypes.UUID,
     title: DataTypes.STRING,
-    titleEn: DataTypes.STRING,
-    titleSi: DataTypes.STRING,
     slug: { type: DataTypes.STRING, unique: true },
     code: DataTypes.STRING,
     // The academic area groups grade-level records without introducing a
@@ -15,8 +13,7 @@ export const defineCourse = (sequelize) =>
     academicLevel: { type: DataTypes.ENUM("al", "ol"), defaultValue: "al" },
     description: DataTypes.TEXT,
     tutorialImageResourceId: DataTypes.UUID,
-    shortDescriptionEn: DataTypes.TEXT,
-    shortDescriptionSi: DataTypes.TEXT,
+    featuredImageResourceId: DataTypes.UUID,
     status: {
       type: DataTypes.ENUM("draft", "published", "archived"),
       defaultValue: "draft",

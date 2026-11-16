@@ -14,9 +14,12 @@ export const serializeActivity = (activity, audience = "authorized_student") => 
   const locked = ["public", "unauthorized_student"].includes(audience) && isPremium(activity.accessPolicy);
   const shared = { ...base(activity), isLocked: locked };
   if (locked) return shared;
+  const config = activity.config?.lessonImport
+    ? Object.fromEntries(Object.entries(activity.config).filter(([key]) => key !== "lessonImport"))
+    : activity.config;
   const editable = {
     ...shared, lessonId: activity.lessonId, topicId: activity.topicId, title: activity.title, content: sanitizeEducationalHtml(activity.content),
-    youtubeUrl: activity.youtubeUrl, externalUrl: activity.externalUrl, resourceId: activity.resourceId, config: activity.config,
+    youtubeUrl: activity.youtubeUrl, externalUrl: activity.externalUrl, resourceId: activity.resourceId, config,
     instructions: sanitizeEducationalHtml(activity.instructions), maxScore: activity.maxScore, passingScore: activity.passingScore,
     configVersion: activity.configVersion || 1, status: activity.status, isVisible: activity.isVisible,
     availableFrom: activity.availableFrom, availableUntil: activity.availableUntil, publishedAt: activity.publishedAt,

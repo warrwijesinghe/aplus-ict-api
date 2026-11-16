@@ -93,6 +93,7 @@ module.exports = {
       ]);
     }
     const alCategory = await one("SELECT id FROM categories WHERE slug = ?", ["al-ict"]);
+    const olCategory = await one("SELECT id FROM categories WHERE slug = ?", ["ol-ict"]);
 
     for (const [code, nameEn, nameSi, sortOrder] of levels) {
       const level = await one("SELECT id FROM academic_levels WHERE code = ?", [code]);
@@ -113,18 +114,14 @@ module.exports = {
         await queryInterface.bulkInsert("courses", [
           {
             id: course.id,
-            categoryId: isAl ? alCategory?.id || schoolCategory.id : schoolCategory.id,
+            categoryId: (isAl ? alCategory?.id : courseGroup === "OL" ? olCategory?.id : null) || schoolCategory.id,
             academicLevelId: level.id,
             title: titleEn,
-            titleEn,
-            titleSi,
             slug,
             code: `${code}-ICT`,
             courseGroup,
             academicLevel: isAl ? "al" : "ol",
             description: shortDescriptionEn,
-            shortDescriptionEn,
-            shortDescriptionSi,
             status: "published",
             sortOrder,
             isFeatured: isAl,
@@ -136,12 +133,12 @@ module.exports = {
         ]);
       } else {
         await db.query(
-          "UPDATE courses SET academicLevelId = ?, courseGroup = ?, titleEn = ?, titleSi = ?, shortDescriptionEn = ?, shortDescriptionSi = ?, isFeatured = ?, isPublic = true, publishedAt = COALESCE(publishedAt, ?), updatedAt = ? WHERE id = ?",
-          { replacements: [level.id, courseGroup, titleEn, titleSi, shortDescriptionEn, shortDescriptionSi, isAl, now, now, course.id] },
+          "UPDATE courses SET academicLevelId = ?, courseGroup = ?, isFeatured = ?, isPublic = true, publishedAt = COALESCE(publishedAt, ?), updatedAt = ? WHERE id = ?",
+          { replacements: [level.id, courseGroup, isAl, now, now, course.id] },
         );
       }
 
-      for (const [mediumCode, mediumName, , , mediumSort] of mediums) {
+      for (const [mediumCode, , , , mediumSort] of mediums) {
         const medium = await one("SELECT id FROM media WHERE code = ?", [mediumCode]);
         const trackSlug = isAl
           ? `al-ict-${mediumCode}`
@@ -149,7 +146,8 @@ module.exports = {
         let track = await one("SELECT id FROM course_tracks WHERE courseId = ? AND mediumId = ?", [course.id, medium.id]);
         if (!track) track = await one("SELECT id FROM course_tracks WHERE slug = ?", [trackSlug]);
         const trackValues = {
-          title: `${titleEn} - ${mediumName}`,
+          title: mediumCode === "sinhala" ? titleSi : titleEn,
+          description: mediumCode === "sinhala" ? shortDescriptionSi : shortDescriptionEn,
           slug: trackSlug,
           status: "published",
           availabilityStatus: "active",
@@ -164,8 +162,8 @@ module.exports = {
           ]);
         } else {
           await db.query(
-            "UPDATE course_tracks SET courseId = ?, mediumId = ?, title = ?, slug = ?, status = ?, availabilityStatus = ?, isPublic = ?, enrolmentOpen = ?, sortOrder = ?, updatedAt = ? WHERE id = ?",
-            { replacements: [course.id, medium.id, trackValues.title, trackValues.slug, trackValues.status, trackValues.availabilityStatus, trackValues.isPublic, trackValues.enrolmentOpen, trackValues.sortOrder, now, track.id] },
+            "UPDATE course_tracks SET courseId = ?, mediumId = ?, slug = ?, status = ?, availabilityStatus = ?, isPublic = ?, enrolmentOpen = ?, sortOrder = ?, updatedAt = ? WHERE id = ?",
+            { replacements: [course.id, medium.id, trackValues.slug, trackValues.status, trackValues.availabilityStatus, trackValues.isPublic, trackValues.enrolmentOpen, trackValues.sortOrder, now, track.id] },
           );
         }
 

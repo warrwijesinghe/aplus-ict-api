@@ -123,6 +123,7 @@ Enrolment.belongsTo(User, { foreignKey: "userId" });
 CourseTrack.hasMany(Enrolment, { foreignKey: "courseTrackId" });
 Enrolment.belongsTo(CourseTrack, { foreignKey: "courseTrackId" });
 LessonEnrolment.belongsTo(User, { foreignKey: 'userId' });
+User.hasMany(LessonEnrolment, { foreignKey: 'userId' });
 LessonEnrolment.belongsTo(CourseTrack, { foreignKey: 'courseTrackId' });
 LessonEnrolment.belongsTo(Lesson, { foreignKey: 'lessonId' });
 Lesson.hasMany(LessonSection, { foreignKey: "lessonId" });

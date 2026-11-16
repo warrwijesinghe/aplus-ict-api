@@ -10,7 +10,7 @@ import { PERMISSIONS } from "../../security/permissions.js";
 import { adminOrder, cancelStudentOrder, createStudentOrder, hasPremiumAccess, listAdminOrders, listStudentOrders, productLifecycle, saveProduct, sendStudentBankDepositPaymentDetails, serializeOrder, serializeProduct, studentOrder, submitStudentBankDeposit, submitStudentBankTransfer, validateProductRelations, verifyOrderPayment } from "./commerce.service.js";
 
 const send = (res, data, status = 200) => res.status(status).json({ data });
-const productIncludes = [{ model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
+const productIncludes = [{ model: db.Course, attributes: ["id", "title"] }, { model: db.CourseTrack, include: [db.Medium] }, { model: db.Lesson, attributes: ["id", "title", "titleEn", "slug"] }, { model: db.ProductEntitlementRule, as: "EntitlementRules" }];
 const publishedWhere = { status: ["published", "active"], archivedAt: null, [Op.and]: [{ [Op.or]: [{ salesStartAt: null }, { salesStartAt: { [Op.lte]: new Date() } }] }, { [Op.or]: [{ salesEndAt: null }, { salesEndAt: { [Op.gte]: new Date() } }] }] };
 const router = Router();
 

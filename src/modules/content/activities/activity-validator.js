@@ -57,8 +57,16 @@ export const validateActivityDraft = (body, current = {}) => {
   if (has(values, "youtubeUrl")) values.youtubeUrl = normalizeYouTubeUrl(values.youtubeUrl);
   if (has(values, "externalUrl") && values.externalUrl) httpUrl(values.externalUrl, "externalUrl");
   if (has(values, "completionMode") && !type.supportedCompletionModes.includes(values.completionMode)) throw new ApiError(422, `completionMode is not supported by ${typeCode}`);
-  if (has(values, "config")) values.config = validateConfig(values.config, type);
-  else if (values.type && values.type !== current.type && current.config) values.config = validateConfig(current.config, type);
+  if (has(values, "config") || (values.type && values.type !== current.type && current.config)) {
+    let displayConfig = has(values, "config") ? values.config : current.config;
+    // Older editor sessions may submit the stored import metadata along with display settings.
+    if (current.config?.lessonImport && displayConfig && has(displayConfig, "lessonImport")) {
+      displayConfig = { ...displayConfig };
+      delete displayConfig.lessonImport;
+    }
+    values.config = validateConfig(displayConfig, type);
+    if (current.config?.lessonImport) values.config = { ...values.config, lessonImport: current.config.lessonImport };
+  }
   if (has(values, "sortOrder") && (!Number.isInteger(values.sortOrder) || values.sortOrder < 0)) throw new ApiError(422, "sortOrder must be a non-negative integer");
   if (has(values, "configVersion") && (!Number.isInteger(values.configVersion) || values.configVersion < 1)) throw new ApiError(422, "configVersion must be a positive integer");
   if (has(values, "estimatedMinutes") && (!Number.isInteger(values.estimatedMinutes) || values.estimatedMinutes < 0)) throw new ApiError(422, "estimatedMinutes must be a non-negative integer");

@@ -5,6 +5,8 @@ export const defineCategory = (sequelize) =>
     name: DataTypes.STRING,
     slug: { type: DataTypes.STRING, unique: true },
     description: DataTypes.TEXT,
+    subtitle: DataTypes.STRING,
+    featuredImageResourceId: DataTypes.UUID,
     status: {
       type: DataTypes.ENUM("draft", "published", "archived"),
       defaultValue: "draft",

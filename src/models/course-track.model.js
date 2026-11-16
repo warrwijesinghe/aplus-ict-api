@@ -5,6 +5,7 @@ export const defineCourseTrack = (sequelize) =>
     courseId: DataTypes.UUID,
     mediumId: DataTypes.UUID,
     title: DataTypes.STRING,
+    description: DataTypes.TEXT,
     slug: { type: DataTypes.STRING, unique: true },
     status: {
       type: DataTypes.ENUM("draft", "published", "archived"),

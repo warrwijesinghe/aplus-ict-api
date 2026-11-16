@@ -119,10 +119,36 @@ export const gradebookForStudent = async (userId, trackId, { teacher = false, tr
   const { activities } = await courseActivities(trackId, transaction); const progress = await progressForCourse(userId, trackId, transaction);
   const quizzes = await db.Quiz.findAll({ where: { courseTrackId: trackId }, transaction }); const quizRows = [];
   for (const quiz of quizzes) { const result = await gradeForQuiz(userId, quiz.id, transaction); const pending = await db.QuizAttempt.count({ where: { userId, quizId: quiz.id, gradingStatus: "pending_manual_grading" }, transaction }); quizRows.push({ quizId: quiz.id, activityId: quiz.lessonSectionId, title: quiz.title, ...result, pendingManualGrading: pending > 0 }); }
-  const graded = quizRows.filter((row) => row.percentage !== undefined); const pendingGrades = quizRows.some((row) => row.pendingManualGrading); const overallGrade = graded.length ? Math.round((graded.reduce((sum, row) => sum + row.percentage, 0) / graded.length) * 100) / 100 : null;
+  const weightedActivities = new Map(activities
+    .filter((activity) => activity.config?.lessonImport?.packageId === "a-plus-ict-lesson-07" &&
+      Number.isFinite(activity.config.lessonImport.weightPercent))
+    .map((activity) => [activity.id, activity]));
+  const weightedLessons = new Map();
+  const graded = [];
+  let pendingGrades = false;
+  for (const row of quizRows) {
+    const activity = weightedActivities.get(row.activityId);
+    if (!activity) {
+      if (row.percentage !== undefined) graded.push(row.percentage);
+      pendingGrades ||= row.pendingManualGrading;
+      continue;
+    }
+    row.weightPercent = activity.config.lessonImport.weightPercent;
+    if (row.weightPercent === 0) continue;
+    pendingGrades ||= row.pendingManualGrading;
+    const lessonGrade = weightedLessons.get(activity.lessonId) || { points: 0, attempted: false };
+    lessonGrade.points += (row.percentage ?? 0) * row.weightPercent / 100;
+    lessonGrade.attempted ||= row.percentage !== undefined;
+    weightedLessons.set(activity.lessonId, lessonGrade);
+  }
+  const lessonGrades = [...weightedLessons].map(([lessonId, grade]) => ({
+    lessonId, lessonNumber: 7, percentage: grade.attempted ? Math.round(grade.points * 100) / 100 : null,
+  }));
+  graded.push(...lessonGrades.filter((grade) => grade.percentage !== null).map((grade) => grade.percentage));
+  const overallGrade = graded.length ? Math.round((graded.reduce((sum, percentage) => sum + percentage, 0) / graded.length) * 100) / 100 : null;
   const passPercentage = Number(track.coursePassPercentage || 50); const passFail = pendingGrades ? "pending" : overallGrade === null ? "not_started" : overallGrade >= passPercentage ? "pass" : "fail";
   const comments = await db.TeacherGradeComment.findAll({ where: { userId, courseTrackId: trackId, ...(teacher ? {} : { visibility: "student_visible" }) }, order: [["updatedAt", "DESC"]], transaction });
-  return { course: { id: track.id, title: track.Course?.titleEn || track.Course?.title || track.title, medium: track.Medium?.nameEn || track.Medium?.name, passPercentage }, completion: progress.course, activities: activities.length, quizzes: quizRows, assignmentMarks: null, overallGrade, passFail, pendingGrades, comments: comments.map((row) => ({ id: row.id, comment: row.comment, visibility: row.visibility, updatedAt: row.updatedAt })), lastUpdatedAt: new Date() };
+  return { course: { id: track.id, title: track.title || track.Course?.title, medium: track.Medium?.nameEn || track.Medium?.name, passPercentage }, completion: progress.course, activities: activities.length, quizzes: quizRows, lessonGrades, assignmentMarks: null, overallGrade, passFail, pendingGrades, comments: comments.map((row) => ({ id: row.id, comment: row.comment, visibility: row.visibility, updatedAt: row.updatedAt })), lastUpdatedAt: new Date() };
 };
 
 const assertRuleTarget = async (activity, values, transaction) => {

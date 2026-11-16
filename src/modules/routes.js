@@ -3,6 +3,7 @@ import multer from "multer";
 import crypto from "crypto";
 import { Op } from "sequelize";
 import { db } from "../models/index.js";
+import { adminDashboard } from "./admin-dashboard.js";
 import { ApiError, asyncHandler } from "../core/errors.js";
 import {
   authenticate,
@@ -78,10 +79,14 @@ router.use(payHereRoutes);
 
 const educatorInclude = [{ model: db.Role, attributes: ["code", "name"] }, { model: db.EducatorAssignment, as: "EducatorAssignments", required: false }];
 const asEducator = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, roles: (user.Roles || []).map((role) => role.code), status: user.status, assignedCourseCount: (user.EducatorAssignments || []).filter((item) => item.status === "active").length, lastLoginAt: user.lastLoginAt || null });
-const assignmentInclude = [{ model: db.User, as: "Educator", attributes: ["id", "name", "email", "status"] }, { model: db.Course, attributes: ["id", "title", "titleEn"] }, { model: db.CourseTrack, include: [db.Medium, { model: db.Course, attributes: ["id", "title", "titleEn"] }] }];
+const assignmentInclude = [{ model: db.User, as: "Educator", attributes: ["id", "name", "email", "status"] }, { model: db.Course, attributes: ["id", "title"] }, { model: db.CourseTrack, include: [db.Medium, { model: db.Course, attributes: ["id", "title"] }] }];
 const canAssignSuperAdmin = (req, roleCode) => roleCode !== "super_admin" || req.user.role === "super_admin";
 const activeSuperAdminCount = () => db.User.count({ where: { role: "super_admin", status: "active" } });
 
+router.get("/admin/dashboard", authenticate, asyncHandler(async (req, res) => {
+  if (!["admin", "super_admin"].includes(req.user.role)) throw new ApiError(403, "Admin access required");
+  send(res, await adminDashboard());
+}));
 router.get("/admin/roles", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (_req, res) => send(res, await db.Role.findAll({ include: [{ model: db.Permission, attributes: ["id", "code", "name", "module"] }], order: [["name", "ASC"]] }))));
 router.get("/admin/permissions", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (_req, res) => send(res, await db.Permission.findAll({ order: [["module", "ASC"], ["code", "ASC"]] }))));
 router.get("/admin/roles/:roleId/permissions", authenticate, requirePermission(PERMISSIONS.ROLES_READ), asyncHandler(async (req, res) => { const role = await db.Role.findByPk(req.params.roleId, { include: [db.Permission] }); if (!role) throw new ApiError(404, "Role not found"); send(res, role.Permissions); }));
@@ -173,6 +178,7 @@ const publicProduct = (lesson) => {
     name: product.name,
     slug: product.slug,
     price: product.price,
+    compareAtPrice: product.compareAtPrice,
     currency: product.currency,
   };
 };
@@ -190,14 +196,11 @@ const publicTrack = (track) => {
   return {
     id: track.id,
     slug: track.slug,
-    title: track.title,
-    titleEn: track.Course?.titleEn || track.Course?.title || track.title,
-    titleSi: track.Course?.titleSi || null,
-    shortDescription: track.Course?.shortDescriptionEn || track.Course?.description || "",
-    shortDescriptionEn: track.Course?.shortDescriptionEn || track.Course?.description || "",
-    shortDescriptionSi: track.Course?.shortDescriptionSi || null,
+    title: track.title || track.Course?.title,
+    shortDescription: track.description ?? track.Course?.description ?? "",
     tutorialImageResourceId: track.Course?.tutorialImageResourceId || null,
-    description: track.Course?.description || track.Course?.shortDescriptionEn || "",
+    featuredImageResourceId: track.Course?.featuredImageResourceId || null,
+    description: track.description ?? track.Course?.description ?? "",
     medium: track.Medium,
     academicLevel: track.Course?.AcademicLevel
       ? {
@@ -261,18 +264,25 @@ router.get(
   asyncHandler(async (_req, res) => {
     const tracks = await db.CourseTrack.findAll({
       where: { status: "published", isPublic: true },
-      attributes: ["id", "slug", "title", "availabilityStatus", "sortOrder"],
+      attributes: ["id", "slug", "title", "description", "availabilityStatus", "sortOrder"],
       include: [
-        { model: db.Course, attributes: ["title", "titleEn", "courseGroup"], where: { status: "published", isPublic: true, courseGroup: { [Op.in]: ["SCHOOL", "OL", "AL", "DEGREE", "PROFESSIONAL", "SHORT_COURSES"] } } },
+        { model: db.Course, attributes: ["title", "description", "featuredImageResourceId", "sortOrder", "courseGroup", "categoryId"], where: { status: "published", isPublic: true } },
         { model: db.Medium, attributes: ["code", "name", "nameEn"] },
       ],
-      order: [["sortOrder", "ASC"], ["title", "ASC"]],
+      order: [[db.Course, "sortOrder", "ASC"], ["sortOrder", "ASC"], ["title", "ASC"]],
     });
-    send(res, tracks.map((track) => ({
-      id: track.id, slug: track.slug, title: track.Course?.titleEn || track.Course?.title || track.title,
-      courseGroup: track.Course?.courseGroup, medium: track.Medium?.nameEn || track.Medium?.name || track.Medium?.code || null,
+    const categories = await db.Category.findAll({
+      attributes: ["id", "slug", "name", "subtitle", "description", "status", "featuredImageResourceId"],
+      where: { status: ["published", "draft"] },
+      order: [["sortOrder", "ASC"], ["name", "ASC"]],
+    });
+    res.json({ categories, data: tracks.map((track) => ({
+      id: track.id, slug: track.slug, title: track.title || track.Course?.title,
+      shortDescription: track.description ?? track.Course?.description,
+      featuredImageResourceId: track.Course?.featuredImageResourceId,
+      courseGroup: track.Course?.courseGroup, categoryId: track.Course?.categoryId, medium: track.Medium?.nameEn || track.Medium?.name || track.Medium?.code || null,
       availabilityStatus: track.availabilityStatus === "inactive" ? "inactive" : "active",
-    })));
+    })) });
   }),
 );
 
@@ -1180,13 +1190,45 @@ const crud = (pathName, Model, fields) => {
     }),
   );
 };
-crud("categories", db.Category, [
-  "name",
-  "slug",
-  "description",
-  "status",
-  "sortOrder",
-]);
+const categoryInput = async (body, category) => {
+  const fields = ["name", "slug", "subtitle", "description", "status", "sortOrder", "featuredImageResourceId"];
+  const values = Object.fromEntries(fields.filter((field) => Object.hasOwn(body, field)).map((field) => [field, body[field]]));
+  const name = values.name ?? category?.name;
+  const slug = values.slug ?? category?.slug;
+  if (typeof name !== "string" || !name.trim() || name.length > 255 || typeof slug !== "string" || slug.length > 255 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+    throw new ApiError(422, "Enter a name and a lowercase, hyphen-separated slug");
+  if (values.status !== undefined && !["draft", "published", "archived"].includes(values.status))
+    throw new ApiError(422, "Invalid category status");
+  if (values.sortOrder !== undefined && (!Number.isInteger(values.sortOrder) || values.sortOrder < 0 || values.sortOrder > 2147483647))
+    throw new ApiError(422, "Display order must be a non-negative whole number");
+  for (const field of ["name", "slug", "subtitle", "description"]) {
+    if (Object.hasOwn(values, field) && (typeof values[field] !== "string" || values[field].length > (field === "description" ? 10000 : 255)))
+      throw new ApiError(422, `Invalid category ${field}`);
+  }
+  if (values.featuredImageResourceId != null) {
+    const image = await db.Resource.findByPk(values.featuredImageResourceId);
+    if (!image?.mimeType?.startsWith("image/") || image.visibility !== "public" || image.accessPolicy !== "public" || !["active", "ready"].includes(image.status))
+      throw new ApiError(422, "Select an active public image");
+  }
+  return values;
+};
+router.get("/admin/categories", ...admin, requirePermission(PERMISSIONS.COURSES_READ), asyncHandler(async (_req, res) =>
+  send(res, await db.Category.findAll({ order: [["sortOrder", "ASC"], ["name", "ASC"]] }))));
+router.post("/admin/categories", ...admin, requirePermission(PERMISSIONS.COURSES_CREATE), asyncHandler(async (req, res) =>
+  send(res, await db.Category.create(await categoryInput(req.body)), 201)));
+router.patch("/admin/categories/:id", ...admin, requirePermission(PERMISSIONS.COURSES_UPDATE), asyncHandler(async (req, res) => {
+  const category = await db.Category.findByPk(req.params.id);
+  if (!category) throw new ApiError(404, "Category not found");
+  send(res, await category.update(await categoryInput(req.body, category)));
+}));
+router.delete("/admin/categories/:id", ...admin, requirePermission(PERMISSIONS.COURSES_ARCHIVE), asyncHandler(async (req, res) => {
+  const category = await db.Category.findByPk(req.params.id);
+  if (!category) throw new ApiError(404, "Category not found");
+  if (await db.Course.count({ where: { categoryId: category.id } }))
+    throw new ApiError(409, "This category has courses. Move them to another category or archive this category.");
+  await category.destroy();
+  res.sendStatus(204);
+}));
 crud("academic-levels", db.AcademicLevel, [
   "code",
   "nameEn",
@@ -1207,15 +1249,11 @@ crud("courses", db.Course, [
   "categoryId",
   "academicLevelId",
   "title",
-  "titleEn",
-  "titleSi",
   "slug",
   "code",
   "courseGroup",
   "academicLevel",
   "description",
-  "shortDescriptionEn",
-  "shortDescriptionSi",
   "status",
   "sortOrder",
   "isFeatured",
