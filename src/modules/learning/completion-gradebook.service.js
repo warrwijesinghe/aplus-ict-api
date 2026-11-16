@@ -3,7 +3,7 @@ import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { hasCourseAssignment, privilegedRoles } from "../../security/authorization.js";
 import { entitledLessonIds } from "../commerce/commerce.service.js";
-import { hasLessonEnrollment } from '../students/lesson-enrollment.service.js';
+import { lessonEnrollmentActive } from '../students/lesson-enrollment.service.js';
 import { accessibleProgress } from './progress.service.js';
 
 export const PREREQUISITE_COMBINATION = "all";
@@ -41,14 +41,17 @@ const courseActivities = async (trackId, transaction) => {
 const entitlementLessons = (userId, lessonIds, transaction) => entitledLessonIds(userId, lessonIds, transaction);
 const premiumLocked = (activity, entitled) => ["premium", "paid"].includes(activity.accessPolicy) && !entitled.has(activity.lessonId);
 
-const gradeForQuiz = async (userId, quizId, transaction) => {
-  const attempts = await db.QuizAttempt.findAll({ where: { userId, quizId, gradingStatus: "graded" }, order: [["submittedAt", "ASC"]], transaction });
+const gradeFromAttempts = (attempts) => {
   if (!attempts.length) return null;
   const method = attempts[0].quizSettingsSnapshot?.gradingMethod || "highest";
   if (method === "average") return { percentage: Math.round((attempts.reduce((sum, row) => sum + Number(row.percentage), 0) / attempts.length) * 100) / 100, passed: attempts.every((row) => row.passed), attemptId: null, gradingMethod: method };
   const selected = method === "latest" ? attempts.at(-1) : method === "first" ? attempts[0] : attempts.reduce((best, row) => Number(row.percentage) > Number(best.percentage) ? row : best);
   return { percentage: Number(selected.percentage), passed: selected.passed === true, attemptId: selected.id, gradingMethod: method };
 };
+
+const gradeForQuiz = async (userId, quizId, transaction) => gradeFromAttempts(await db.QuizAttempt.findAll({
+  where: { userId, quizId, gradingStatus: "graded" }, order: [["submittedAt", "ASC"]], transaction,
+}));
 
 const completionMap = async (userId, activityIds, transaction) => new Map((await db.ActivityCompletion.findAll({ where: { userId, activityId: { [Op.in]: activityIds } }, transaction })).map((row) => [row.activityId, row]));
 
@@ -57,15 +60,36 @@ const previousTopic = (activity, topics) => topics.filter((row) => row.lessonId 
 
 export const accessState = async (userId, activityId, transaction) => {
   const { activity, track } = await trackForActivity(activityId, transaction);
-  const { lessons, topics, activities } = await courseActivities(track.id, transaction);
-  const ids = activities.map((row) => row.id);
-  const [completions, entitled, rules, approvals] = await Promise.all([
-    completionMap(userId, ids, transaction), entitlementLessons(userId, lessons.map((row) => row.id), transaction),
-    db.ActivityPrerequisite.findAll({ where: { activityId }, order: [["sortOrder", "ASC"]], transaction }),
-    db.TeacherActivityApproval.findAll({ where: { userId, activityId, revokedAt: null }, transaction }),
+  return (await accessStatesForCourse(userId, track.id, [activity], transaction)).get(activityId);
+};
+
+export const accessStatesForCourse = async (userId, trackId, requestedActivities, transaction, knownEntitlements) => {
+  if (!requestedActivities.length) return new Map();
+  const { lessons, topics, activities } = await courseActivities(trackId, transaction);
+  const activityIds = requestedActivities.map(({ id }) => id);
+  const lessonIds = [...new Set(requestedActivities.map(({ lessonId }) => lessonId))];
+  const [completions, entitled, rules, approvals, enrollments] = await Promise.all([
+    completionMap(userId, activities.map(({ id }) => id), transaction),
+    knownEntitlements ?? entitlementLessons(userId, lessons.map(({ id }) => id), transaction),
+    db.ActivityPrerequisite.findAll({ where: { activityId: activityIds }, order: [["sortOrder", "ASC"]], transaction }),
+    db.TeacherActivityApproval.findAll({ where: { userId, activityId: activityIds, revokedAt: null }, transaction }),
+    db.LessonEnrolment.findAll({ where: { userId, lessonId: lessonIds }, transaction }),
   ]);
+  const rulesByActivity = new Map(activityIds.map((id) => [id, []]));
+  for (const rule of rules) rulesByActivity.get(rule.activityId).push(rule);
+  const approved = new Set(approvals.map(({ activityId }) => activityId));
+  const enrolled = new Set(enrollments.filter((row) => lessonEnrollmentActive(row)).map(({ lessonId }) => lessonId));
+  return new Map(await Promise.all(requestedActivities.map(async (activity) => [
+    activity.id, await evaluateAccessState(userId, activity, {
+      topics, activities, completions, entitled, rules: rulesByActivity.get(activity.id),
+      approved: approved.has(activity.id), enrolled: enrolled.has(activity.lessonId), transaction,
+    }),
+  ])));
+};
+
+const evaluateAccessState = async (userId, activity, { topics, activities, completions, entitled, rules, approved, enrolled, transaction }) => {
   const unmetRequirements = [];
-  if (!(await hasLessonEnrollment(userId, activity.lessonId, transaction))) unmetRequirements.push({ type: 'lesson_enrollment', message: 'An active lesson enrolment is required.' });
+  if (!enrolled) unmetRequirements.push({ type: 'lesson_enrollment', message: 'An active lesson enrolment is required.' });
   if (premiumLocked(activity, entitled)) unmetRequirements.push({ type: "premium", message: "Exam Success Pack access is required." });
   for (const rule of rules) {
     // Learning is self-paced: students can start any lesson, topic, or free
@@ -76,7 +100,7 @@ export const accessState = async (userId, activityId, transaction) => {
     if (selfPacedPrerequisiteTypes.has(rule.prerequisiteType)) continue;
     let met = true; let message = null; let target = null;
     if (rule.prerequisiteType === "available_after_date") { met = Boolean(rule.availableAfter && new Date(rule.availableAfter) <= now()); message = `Available from ${new Date(rule.availableAfter).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}.`; }
-    else if (rule.prerequisiteType === "teacher_approval") { met = approvals.length > 0; message = "Teacher approval is required."; }
+    else if (rule.prerequisiteType === "teacher_approval") { met = approved; message = "Teacher approval is required."; }
     else if (rule.prerequisiteType === "require_premium_entitlement") { met = !premiumLocked(activity, entitled); message = "Exam Success Pack access is required."; }
     else if (["complete_previous_activity", "complete_specific_activity"].includes(rule.prerequisiteType)) { target = rule.requiredActivityId ? activities.find((row) => row.id === rule.requiredActivityId) : previousActivity(activity, activities); met = Boolean(target && completions.get(target.id)?.status === "completed"); message = target ? `Complete “${title(target)}” first.` : "Complete the required previous activity first."; }
     else if (["pass_previous_quiz", "pass_specific_quiz"].includes(rule.prerequisiteType)) { const previous = rule.requiredQuizId ? await db.Quiz.findByPk(rule.requiredQuizId, { transaction }) : await db.Quiz.findOne({ where: { lessonSectionId: previousActivity(activity, activities)?.id }, transaction }); const grade = previous && await gradeForQuiz(userId, previous.id, transaction); met = Boolean(grade?.passed); target = previous?.Activity; message = previous ? `Pass “${previous.title}” first.` : "Pass the required previous Quiz first."; }
@@ -117,8 +141,22 @@ export const progressForCourse = async (userId, trackId, transaction) => {
 export const gradebookForStudent = async (userId, trackId, { teacher = false, transaction } = {}) => {
   const track = await db.CourseTrack.findByPk(trackId, { include: [db.Course, db.Medium], transaction }); if (!track) throw new ApiError(404, "Medium not found");
   const { activities } = await courseActivities(trackId, transaction); const progress = await progressForCourse(userId, trackId, transaction);
-  const quizzes = await db.Quiz.findAll({ where: { courseTrackId: trackId }, transaction }); const quizRows = [];
-  for (const quiz of quizzes) { const result = await gradeForQuiz(userId, quiz.id, transaction); const pending = await db.QuizAttempt.count({ where: { userId, quizId: quiz.id, gradingStatus: "pending_manual_grading" }, transaction }); quizRows.push({ quizId: quiz.id, activityId: quiz.lessonSectionId, title: quiz.title, ...result, pendingManualGrading: pending > 0 }); }
+  const quizzes = await db.Quiz.findAll({ where: { courseTrackId: trackId }, transaction });
+  const attempts = await db.QuizAttempt.findAll({
+    where: { userId, quizId: quizzes.map(({ id }) => id), gradingStatus: ["graded", "pending_manual_grading"] },
+    attributes: ["id", "quizId", "gradingStatus", "quizSettingsSnapshot", "percentage", "passed"],
+    order: [["submittedAt", "ASC"]], transaction,
+  });
+  const gradedAttempts = new Map(quizzes.map(({ id }) => [id, []]));
+  const pendingQuizzes = new Set();
+  for (const attempt of attempts) {
+    if (attempt.gradingStatus === "graded") gradedAttempts.get(attempt.quizId).push(attempt);
+    else pendingQuizzes.add(attempt.quizId);
+  }
+  const quizRows = quizzes.map((quiz) => ({
+    quizId: quiz.id, activityId: quiz.lessonSectionId, title: quiz.title,
+    ...gradeFromAttempts(gradedAttempts.get(quiz.id)), pendingManualGrading: pendingQuizzes.has(quiz.id),
+  }));
   const weightedActivities = new Map(activities
     .filter((activity) => activity.config?.lessonImport?.packageId === "a-plus-ict-lesson-07" &&
       Number.isFinite(activity.config.lessonImport.weightPercent))

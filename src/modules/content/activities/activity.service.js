@@ -57,7 +57,10 @@ export const publishActivity = async (activityId) => {
   const activity = await db.LessonSection.findByPk(activityId);
   if (!activity) throw new ApiError(404, "Activity not found");
   await validateForPublishing(activity.get({ plain: true }));
-  await activity.update({ status: "published", publishedAt: new Date() });
+  await activity.update({
+    status: "published", publishedAt: new Date(),
+    ...(activity.type === "video" ? { isVisible: true } : {}),
+  });
   return activity;
 };
 export const unpublishActivity = async (activityId) => {

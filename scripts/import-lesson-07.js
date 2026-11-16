@@ -177,7 +177,7 @@ async function importMedium({ language, activities }, author, transaction) {
       })),
     }) };
     const section = ensure(db.LessonSection, sectionId, {
-      lessonId: target.id, topicId, type, ...titles(localized, language), accessPolicy: "premium", sortOrder: order + 1,
+      lessonId: target.id, topicId, type, ...titles(localized, language), accessPolicy: video ? "premium" : "free", sortOrder: order + 1,
       config: { lessonImport: metadata }, ...(video ? { status: "draft", isVisible: false, completionMode: "manual" } :
         { ...visible, publishedAt: now, completionMode: "submit", maxScore: quiz.totalPoints }),
     }, { lessonId: target.id, type });

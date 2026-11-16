@@ -4,7 +4,7 @@ import { db } from "../../models/index.js";
 import { publishedWhere } from "../content/content.service.js";
 import { serializeActivity } from "../content/activities/activity-serializer.js";
 import { accessibleProgress } from "./progress.service.js";
-import { accessState, clearManualCompletion, recordCompletion } from "./completion-gradebook.service.js";
+import { accessStatesForCourse, clearManualCompletion, recordCompletion } from "./completion-gradebook.service.js";
 import { requireCompletedProfile } from "../students/student-profile.service.js";
 import { entitledLessonIds } from "../commerce/commerce.service.js";
 
@@ -92,15 +92,11 @@ export const loadStudentCourse = async (userId, courseSlug, transaction) => {
   ]);
   const progressByActivity = new Map(progressRows.map((item) => [item.lessonSectionId, item]));
   const entitledLessons = entitlementRows;
-  const initialRows = visibleActivities.map((activity) => ({
-    activity,
-    progress: progressByActivity.get(activity.id),
-    isLocked: ["premium", "paid"].includes(activity.accessPolicy) && !entitledLessons.has(activity.lessonId),
-  }));
-  const activityRows = await Promise.all(initialRows.map(async (row) => {
-    const state = await accessState(userId, row.activity.id, transaction);
-    return { ...row, isLocked: state.locked, access: state };
-  }));
+  const states = await accessStatesForCourse(userId, track.id, visibleActivities, transaction, entitledLessons);
+  const activityRows = visibleActivities.map((activity) => {
+    const access = states.get(activity.id);
+    return { activity, progress: progressByActivity.get(activity.id), isLocked: access.locked, access };
+  });
   const byLesson = new Map(lessons.map((lesson) => [lesson.id, []]));
   activityRows.forEach((row) => byLesson.get(row.activity.lessonId)?.push(row));
   const topicsByLesson = new Map(lessons.map((lesson) => [lesson.id, []]));
