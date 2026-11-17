@@ -2,11 +2,20 @@
 
 async function removeColumn(query, table, column) {
   if (!(await query.describeTable(table))[column]) return;
-  const references = await query.getForeignKeyReferencesForTable(table);
-  for (const reference of references.filter((entry) => entry.columnName === column)) {
-    await query.removeConstraint(table, reference.constraintName);
-  }
-  await query.removeColumn(table, column);
+
+  const database = query.sequelize;
+  // Sequelize v6 removeColumn reads MariaDB foreign-key metadata as a RAW result.
+  const references = await database.query(`
+    SELECT DISTINCT CONSTRAINT_NAME AS constraintName
+    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+  `, { replacements: { table, column }, type: database.QueryTypes.SELECT });
+
+  const clauses = references.map(({ constraintName }) =>
+    `DROP FOREIGN KEY ${query.quoteIdentifier(constraintName)}`);
+  clauses.push(`DROP COLUMN ${query.quoteIdentifier(column)}`);
+  await database.query(`ALTER TABLE ${query.quoteIdentifier(table)} ${clauses.join(", ")}`);
 }
 
 module.exports = {
