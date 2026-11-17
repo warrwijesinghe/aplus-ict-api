@@ -5,8 +5,9 @@ import { ApiError, asyncHandler } from "../../core/errors.js";
 import { authenticate } from "../auth/auth.js";
 import { audit, hasCourseAssignment, privilegedRoles, requirePermission } from "../../security/authorization.js";
 import { PERMISSIONS } from "../../security/permissions.js";
-import { assertParent, duplicateLessonDraft, duplicateTopicDraft, reorder } from "./content.service.js";
+import { assertParent, deleteActivity, deleteTopic, duplicateLessonDraft, duplicateTopicDraft, reorder } from "./content.service.js";
 import { pick, validateContentPayload } from "./content-validation.js";
+import { parseTopicCsv, topicTitleKey } from "./topic-import.js";
 import { activityTypeMetadata } from "./activities/activity-types.js";
 import { archiveActivity, createActivity, duplicateActivity, publishActivity, unpublishActivity, updateActivity, validateForPublishing } from "./activities/activity.service.js";
 import { serializeActivity } from "./activities/activity-serializer.js";
@@ -175,13 +176,51 @@ export const createContentAdminRouter = () => {
     res.sendStatus(204);
   }));
   scoped("topics", db.Topic, "topic", { read: PERMISSIONS.TOPICS_READ, create: PERMISSIONS.TOPICS_CREATE, update: PERMISSIONS.TOPICS_UPDATE }, "topic", async (req) => trackForLesson(req.body.lessonId || (await assertParent(db.Topic, req.body.id, "Topic not found")).lessonId), async (values) => assertParent(db.Lesson, values.lessonId, "Lesson does not exist"));
+  router.post("/admin/lessons/:lessonId/topics/import", ...requireTrack(
+    PERMISSIONS.TOPICS_CREATE, "canManageContent", (req) => trackForLesson(req.params.lessonId),
+  ), asyncHandler(async (req, res) => {
+    const rows = parseTopicCsv(req.body?.text);
+    const lessonId = req.params.lessonId;
+    const result = await db.sequelize.transaction(async (transaction) => {
+      const lesson = await db.Lesson.findByPk(lessonId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!lesson || lesson.status === "archived") throw new ApiError(404, "Lesson is unavailable.");
+      const existing = await db.Topic.findAll({
+        where: { lessonId }, attributes: ["title", "titleEn", "status", "sortOrder"], transaction,
+      });
+      const titles = new Set(existing.filter((topic) => topic.status !== "archived")
+        .map((topic) => topicTitleKey(topic.title || topic.titleEn || "")));
+      const newTopics = rows.filter(({ title }) => !titles.has(topicTitleKey(title)));
+      const lastOrder = Math.max(0, ...existing.map(({ sortOrder }) => sortOrder));
+      if (newTopics.length) await db.Topic.bulkCreate(newTopics.map((topic, index) => ({
+        ...topic, lessonId, status: "draft", sortOrder: lastOrder + index + 1,
+      })), { transaction });
+      return { imported: newTopics.length, skipped: rows.length - newTopics.length };
+    });
+    if (result.imported) await audit(req, "topics_imported", "lesson", lessonId, result);
+    send(res, result, 201);
+  }));
   const lifecycle = (path, Model, permission, resolveTrack, kind) => {
     router.post(`/admin/${path}/:id/publish`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); if (!String(row.title || row.titleEn || "").trim()) throw new ApiError(422, "A title is required before publishing"); await row.update({ status: "published", isVisible: true, publishedAt: new Date() }); await audit(req, `${kind}_published`, kind, row.id); send(res, row); }));
     router.post(`/admin/${path}/:id/unpublish`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); await row.update({ status: "draft", publishedAt: null }); await audit(req, `${kind}_unpublished`, kind, row.id); send(res, row); }));
     router.post(`/admin/${path}/:id/archive`, ...requireTrack(permission, "canManageContent", (req) => resolveTrack(req.params.id)), asyncHandler(async (req, res) => { const row = await assertParent(Model, req.params.id, "Not found"); await row.update({ status: "archived", isVisible: false }); await audit(req, `${kind}_archived`, kind, row.id); send(res, row); }));
   };
   lifecycle("lessons", db.Lesson, PERMISSIONS.LESSONS_PUBLISH, trackForLesson, "lesson");
+  router.post("/admin/lessons/:id/restore", ...requireTrack(
+    PERMISSIONS.LESSONS_PUBLISH, "canManageContent", (req) => trackForLesson(req.params.id),
+  ), asyncHandler(async (req, res) => {
+    const [updated] = await db.Lesson.update({ status: "draft", publishedAt: null }, {
+      where: { id: req.params.id, status: "archived" },
+    });
+    if (!updated) throw new ApiError(409, "This lesson is no longer archived.");
+    await audit(req, "lesson_restored", "lesson", req.params.id);
+    send(res, await db.Lesson.findByPk(req.params.id));
+  }));
   lifecycle("topics", db.Topic, PERMISSIONS.TOPICS_UPDATE, trackForTopic, "topic");
+  router.delete("/admin/topics/:id", ...requireTrack(PERMISSIONS.TOPICS_UPDATE, "canManageContent", (req) => trackForTopic(req.params.id)), asyncHandler(async (req, res) => {
+    const deletedTopics = await deleteTopic(req.params.id);
+    await audit(req, "topic_deleted", "topic", req.params.id, { deletedTopics });
+    res.sendStatus(204);
+  }));
   router.post("/admin/lessons/:id/duplicate", ...requireTrack(PERMISSIONS.LESSONS_CREATE, "canManageContent", (req) => trackForLesson(req.params.id)), asyncHandler(async (req, res) => { const source = await assertParent(db.Lesson, req.params.id, "Lesson not found"); const destinationTrackId = req.body.destinationTrackId || source.trackId; if (await assertParent(db.CourseTrack, destinationTrackId, "Medium not found") && !privileged(req) && !(await hasCourseAssignment(req.user.sub, { trackId: destinationTrackId, capability: "canManageContent" }))) throw new ApiError(403, "You are not assigned to this Medium"); const copy = await duplicateLessonDraft(source.id, destinationTrackId); await audit(req, "lesson_duplicated", "lesson", copy.id, { sourceLessonId: source.id }); send(res, copy, 201); }));
   router.post("/admin/topics/:id/duplicate", ...requireTrack(PERMISSIONS.TOPICS_CREATE, "canManageContent", (req) => trackForTopic(req.params.id)), asyncHandler(async (req, res) => { const copy = await duplicateTopicDraft(req.params.id, req.body.includeActivities !== false); await audit(req, "topic_duplicated", "topic", copy.id, { sourceTopicId: req.params.id, includeActivities: req.body.includeActivities !== false }); send(res, copy, 201); }));
   const activityRoutes = (path) => {
@@ -202,6 +241,11 @@ export const createContentAdminRouter = () => {
     }));
   };
   activityRoutes("activities");
+  router.delete("/admin/activities/:id", ...requireTrack(PERMISSIONS.ACTIVITIES_PUBLISH, "canManageContent", (req) => trackForActivity(req.params.id)), asyncHandler(async (req, res) => {
+    await deleteActivity(req.params.id);
+    await audit(req, "activity_deleted", "activity", req.params.id);
+    res.sendStatus(204);
+  }));
   // Legacy clients keep the same contract while receiving the stricter service layer.
   activityRoutes("sections");
   router.post("/admin/activities/:id/publish", ...requireTrack(PERMISSIONS.ACTIVITIES_PUBLISH, "canManageContent", (req) => trackForActivity(req.params.id)), asyncHandler(async (req, res) => {

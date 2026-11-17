@@ -3,6 +3,100 @@ import { ApiError } from "../../core/errors.js";
 import { db } from "../../models/index.js";
 import { serializeActivity } from "./activities/activity-serializer.js";
 
+const numberedTopic = (topic) => (topic.title || topic.titleEn || "").match(/^(\d+(?:\.\d+)*)(?:[.)])?\s+\S/)?.[1];
+
+const assertDeletable = (row, label) => {
+  if (!row) throw new ApiError(404, `${label} not found.`);
+  if (row.status === "published") throw new ApiError(409, `Unpublish or archive this ${label.toLowerCase()} before deleting it.`);
+};
+
+const assertNoLinkedRecords = async (references, transaction, message) => {
+  for (const [Model, where] of references) {
+    if (await Model.findOne({ where, attributes: ["id"], transaction, lock: transaction.LOCK.UPDATE })) {
+      throw new ApiError(409, message);
+    }
+  }
+};
+
+export const deleteTopic = (id) => db.sequelize.transaction(async (transaction) => {
+  const existing = await db.Topic.findByPk(id, { attributes: ["lessonId"], transaction });
+  if (!existing) throw new ApiError(404, "Topic not found.");
+  const lessonTopics = await db.Topic.findAll({
+    where: { lessonId: existing.lessonId },
+    attributes: ["id", "title", "titleEn", "status"], order: [["id", "ASC"]],
+    transaction, lock: transaction.LOCK.UPDATE,
+  });
+  const topic = lessonTopics.find((entry) => entry.id === id);
+  assertDeletable(topic, "Topic");
+
+  const branch = [topic];
+  const numbered = new Map();
+  const entries = lessonTopics.flatMap((entry) => {
+    const number = numberedTopic(entry);
+    if (!number) return [];
+    numbered.set(number, numbered.has(number) ? null : entry);
+    return [{ entry, parts: number.split(".") }];
+  });
+  const branchIds = new Set([id]);
+  for (const { entry, parts } of entries.sort((a, b) => a.parts.length - b.parts.length)) {
+    let parent;
+    while (parts.length > 1 && !parent) {
+      parts.pop();
+      parent = numbered.get(parts.join("."));
+    }
+    if (parent && branchIds.has(parent.id)) {
+      branch.push(entry);
+      branchIds.add(entry.id);
+    }
+  }
+
+  if (branch.some((entry) => entry.status === "published")) {
+    throw new ApiError(409, "Unpublish or archive the published subtopics before deleting this topic.");
+  }
+  const ids = { [Op.in]: [...branchIds] };
+  await assertNoLinkedRecords([
+    [db.LessonSection, { topicId: ids }],
+  ], transaction, "Remove the linked activities from this topic and its subtopics before deleting them.");
+  await assertNoLinkedRecords([
+    [db.Quiz, { topicId: ids }],
+    [db.Question, { topicId: ids }],
+    [db.ActivityPrerequisite, { requiredTopicId: ids }],
+    [db.ActivityCompletion, { topicId: ids }],
+    [db.StudentCourseState, { lastTopicId: ids }],
+    [db.StudentLearningHistory, { topicId: ids }],
+  ], transaction, "This topic or a subtopic has linked records and cannot be permanently deleted.");
+  return db.Topic.destroy({ where: { id: ids }, transaction });
+});
+
+export const deleteActivity = (id) => db.sequelize.transaction(async (transaction) => {
+  const activity = await db.LessonSection.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+  assertDeletable(activity, "Activity");
+  await assertNoLinkedRecords([
+    [db.ActivityCompletion, { activityId: id }],
+    [db.ContentProgress, { lessonSectionId: id }],
+    [db.TeacherActivityApproval, { activityId: id }],
+    [db.ActivityPrerequisite, { requiredActivityId: id }],
+    [db.Entitlement, { activityId: id }],
+    [db.ProductEntitlementRule, { activityId: id }],
+    [db.StudentCourseState, { lastActivityId: id }],
+    [db.StudentLearningHistory, { activityId: id }],
+  ], transaction, "This activity has learner records or linked content and cannot be permanently deleted.");
+
+  const quiz = await db.Quiz.findOne({ where: { lessonSectionId: id }, transaction, lock: transaction.LOCK.UPDATE });
+  if (quiz) {
+    assertDeletable(quiz, "Quiz");
+    await assertNoLinkedRecords([
+      [db.QuizAttempt, { quizId: quiz.id }],
+      [db.QuizGrade, { quizId: quiz.id }],
+      [db.ActivityPrerequisite, { requiredQuizId: quiz.id }],
+      [db.StudentLearningHistory, { quizId: quiz.id }],
+    ], transaction, "This quiz has attempts, grades or linked content and cannot be permanently deleted.");
+    await quiz.destroy({ transaction });
+  }
+  await db.ActivityPrerequisite.destroy({ where: { activityId: id }, transaction });
+  await activity.destroy({ transaction });
+});
+
 const now = () => new Date();
 export const publishedWhere = () => ({ status: "published", isVisible: { [Op.ne]: false }, [Op.and]: [{ [Op.or]: [{ availableFrom: null }, { availableFrom: { [Op.lte]: now() } }] }, { [Op.or]: [{ availableUntil: null }, { availableUntil: { [Op.gte]: now() } }] }] });
 export const isPubliclyAvailable = (record) => record.status === "published" && record.isVisible !== false && (!record.availableFrom || new Date(record.availableFrom) <= now()) && (!record.availableUntil || new Date(record.availableUntil) >= now());
